@@ -124,11 +124,23 @@ DECLARE_TASKLET(pal_tasklet,pal_tasklet_func,0);
 /*static void asi_tasklet_func(unsigned long);
 DECLARE_TASKLET(asi_tasklet,asi_tasklet_func,0);*/
 
+static void pal_write32(u32 val, void __iomem *addr) {
+	iowrite32(val, addr);
+}
+
+static unsigned int pal_read32(void __iomem *addr) {
+	return ioread32(addr);
+}
+
 struct pal_proc_fs_t {
 	int 		pal_rx_ping_int_cnt;
 	int  		pal_rx_pong_int_cnt;
 	int 		asi_rx_ping_int_cnt;
 	int  		asi_rx_pong_int_cnt;
+	int         pal_kfifo_empty_cnt;
+	int         pal_kfifo_full_cnt;
+	int         asi_kfifo_empty_cnt;
+	int         asi_kfifo_full_cnt;
 }pal_proc_fs;
 
 /* 设备结构体 */
@@ -148,6 +160,8 @@ struct pal_dev {
 	const char *		name;
 	spinlock_t			irq_lock;
 	//void *dev_base;
+	unsigned int (*read_fn)(void __iomem *);
+	void (*write_fn)(u32, void __iomem *);
 };
 
 static struct pal_dev paldev[]={
@@ -158,6 +172,8 @@ static struct pal_dev paldev[]={
 		.irq_init_flag 		= 0,
 		.handler 		    = pal_rx_interrupt,
 		.name 				= "pal rx",
+		.read_fn				= pal_read32,
+		.write_fn				= pal_write32,
 	},
 	{
 		//.devnum = 1,
@@ -165,7 +181,9 @@ static struct pal_dev paldev[]={
 		.irq     			= ASI_RX_IRQ_NUMBER,
 		.irq_init_flag 		= 0,
 		.handler 		    = asi_rx_interrupt,
-		.name 				= "asi rx",
+		.name 					= "asi rx",
+		.read_fn				= pal_read32,
+		.write_fn				= pal_write32,
 	}
 };
 #define NBR_DEVICE ARRAY_SIZE(paldev)
@@ -280,7 +298,7 @@ long pal_unlocked_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 			/* Get the current parameters */
 			//params = dev->params;
-			params.pal_ping_addr = readl(dev_base + PAL_PING_ADDR);			
+			params.pal_ping_addr = dev->read_fn(dev_base + PAL_PING_ADDR);			
 
 			spin_unlock_irq(&dev->lock);
 
@@ -301,7 +319,7 @@ long pal_unlocked_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 			/* Save the new parameters */
 			//dev->params = params;
-			writel(params.pal_ping_addr, dev_base + PAL_PING_ADDR);
+			dev->write_fn(params.pal_ping_addr, dev_base + PAL_PING_ADDR);
 			// then todo: do iounremap -> ioremap
 
 			spin_unlock_irq(&dev->lock);
@@ -315,7 +333,7 @@ long pal_unlocked_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 			/* Get the current parameters */
 			//params = dev->params;
-			params.pal_pong_addr = readl(dev_base + PAL_PING_ADDR);
+			params.pal_pong_addr = dev->read_fn(dev_base + PAL_PING_ADDR);
 
 			spin_unlock_irq(&dev->lock);
 
@@ -336,7 +354,7 @@ long pal_unlocked_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 			/* Save the new parameters */
 			//dev->params = params;
-			writel(params.pal_pong_addr, dev_base + PAL_PONG_ADDR);
+			dev->write_fn(params.pal_pong_addr, dev_base + PAL_PONG_ADDR);
 			// then todo: do iounremap -> ioremap	
 
 			spin_unlock_irq(&dev->lock);
@@ -350,7 +368,7 @@ long pal_unlocked_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 			/* Get the current parameters */
 			//params = dev->params;
-			params.asi_ping_addr = readl(dev_base + ASI_PING_ADDR);
+			params.asi_ping_addr = dev->read_fn(dev_base + ASI_PING_ADDR);
 
 			spin_unlock_irq(&dev->lock);
 
@@ -371,7 +389,7 @@ long pal_unlocked_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 			/* Save the new parameters */
 			//dev->params = params;
-			writel(params.asi_ping_addr, dev_base + ASI_PING_ADDR);
+			dev->write_fn(params.asi_ping_addr, dev_base + ASI_PING_ADDR);
 			// then todo: do iounremap -> ioremap	
 
 			spin_unlock_irq(&dev->lock);
@@ -385,7 +403,7 @@ long pal_unlocked_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 			/* Get the current parameters */
 			//params = dev->params;
-			params.asi_pong_addr = readl(dev_base + ASI_PING_ADDR);
+			params.asi_pong_addr = dev->read_fn(dev_base + ASI_PING_ADDR);
 
 			spin_unlock_irq(&dev->lock);
 
@@ -406,7 +424,7 @@ long pal_unlocked_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 			/* Save the new parameters */
 			//dev->params = params;
-			writel(params.asi_pong_addr, dev_base + ASI_PONG_ADDR);
+			dev->write_fn(params.asi_pong_addr, dev_base + ASI_PONG_ADDR);
 			// then todo: do iounremap -> ioremap
 
 			spin_unlock_irq(&dev->lock);
@@ -420,9 +438,9 @@ long pal_unlocked_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 			/* Get the current parameters */
 			//vers = dev->params;
-			vers.fpga_ver_num 			= (__u8)(readl(dev_base + FPAG_VER_NO));
-			vers.fpag_compile_date 		= readl(dev_base + COMPILE_DATE);
-			vers.fpga_compile_time		= readl(dev_base + COMPILE_TIME);
+			vers.fpga_ver_num 			= (__u8)(dev->read_fn(dev_base + FPAG_VER_NO));
+			vers.fpag_compile_date 		= dev->read_fn(dev_base + COMPILE_DATE);
+			vers.fpga_compile_time		= dev->read_fn(dev_base + COMPILE_TIME);
 
 			spin_unlock_irq(&dev->lock);
 
@@ -438,7 +456,7 @@ long pal_unlocked_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 			/* Get the current parameters */
 			//vers = dev->params;
-			params.pal_rx_max_len 			= readl(dev_base + PAL_FRAME_LEN);
+			params.pal_rx_max_len 			= dev->read_fn(dev_base + PAL_FRAME_LEN);
 
 			spin_unlock_irq(&dev->lock);
 
@@ -454,7 +472,7 @@ long pal_unlocked_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 			/* Get the current parameters */
 			//vers = dev->params;
-			params.asi_rx_max_len 			= readl(dev_base + ASI_FRAME_LEN);
+			params.asi_rx_max_len 			= dev->read_fn(dev_base + ASI_FRAME_LEN);
 
 			spin_unlock_irq(&dev->lock);
 
@@ -492,8 +510,8 @@ void pal_tasklet_func(unsigned long data) {
 	int pal_rx_len = 0;
 	int pal_dma_status = 0;	
 
-	pal_rx_len 		= readl(dev_base + PAL_FRAME_LEN);
-	pal_dma_status 	= readl(dev_base + PAL_DMA_STATUS); 
+	pal_rx_len 		= paldev[0].read_fn(dev_base + PAL_FRAME_LEN);
+	pal_dma_status 	= paldev[0].read_fn(dev_base + PAL_DMA_STATUS); 
 	if (PAL_PING_DMA_COMPLETE == (pal_dma_status | PAL_PING_DMA_COMPLETE)) {
 		kfifo_in(&g_pal_fifo,pal_rx_ping_base,pal_rx_max_len);
 		pal_proc_fs.pal_rx_ping_int_cnt += 1;
@@ -532,8 +550,8 @@ static irqreturn_t asi_rx_interrupt(int irq, void *dev_id)
 
 	spin_lock_irqsave(&paldev[1].irq_lock, flags);
 
-	asi_rx_len 		= readl(dev_base + ASI_FRAME_LEN);
-	asi_dma_status 	= readl(dev_base + ASI_DMA_STATUS); 
+	asi_rx_len 		= paldev[1].read_fn(dev_base + ASI_FRAME_LEN);
+	asi_dma_status 	= paldev[1].read_fn(dev_base + ASI_DMA_STATUS);
 	if (ASI_PING_DMA_COMPLETE == (asi_dma_status | ASI_PING_DMA_COMPLETE)) {
 		kfifo_in(&g_asi_fifo,asi_rx_ping_base,asi_rx_max_len);
 		pal_proc_fs.asi_rx_ping_int_cnt += 1;
@@ -615,7 +633,12 @@ static int pal_proc_show(struct seq_file *m, void *v) {
 	seq_printf(m, "pal_rx_pong_int_cnt : 0x%08X\n", pal_proc_fs.pal_rx_pong_int_cnt);
 	seq_printf(m, "asi_rx_ping_int_cnt : 0x%08X\n", pal_proc_fs.asi_rx_ping_int_cnt);
 	seq_printf(m, "asi_rx_pong_int_cnt : 0x%08X\n", pal_proc_fs.asi_rx_pong_int_cnt);
-    return 0;
+    seq_printf(m, "pal_kfifo_empty_cnt : 0x%08X\n", pal_proc_fs.pal_kfifo_empty_cnt);
+	seq_printf(m, "pal_kfifo_full_cnt  : 0x%08X\n", pal_proc_fs.pal_kfifo_full_cnt);
+	seq_printf(m, "asi_kfifo_empty_cnt : 0x%08X\n", pal_proc_fs.asi_kfifo_empty_cnt);
+	seq_printf(m, "asi_kfifo_full_cnt  : 0x%08X\n", pal_proc_fs.asi_kfifo_full_cnt);
+
+	return 0;
 }
 
 static int pal_proc_open(struct inode *inode, struct file *file)
