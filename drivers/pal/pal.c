@@ -19,6 +19,11 @@
 #define MINOR_BASE 					0
 #define MINOR_NUM 					2
 
+#define  DEBUG
+
+#ifdef DEBUG
+static int test_condition = 0;
+#endif
 
 /* register definitions */
 #define PAL_FPGA_BASE_ADDR          0x44A00000 
@@ -56,11 +61,12 @@
 #define PAL_RX_PONG_ADDR 			(PAL_FPGA_BASE_ADDR + 0x2000)
 #define ASI_RX_PING_ADDR			(PAL_FPGA_BASE_ADDR + 0x3000)
 #define ASI_RX_PONG_ADDR			(PAL_FPGA_BASE_ADDR + 0x4000)
-#define PAL_RX_MAX_LEN				0x1000
-#define ASI_RX_MAX_LEN				0x1000
+#define PAL_RX_MAX_LEN				414720  //720*576
+#define ASI_RX_MAX_LEN				414720  //720*576
 
 /* inner used definitions */
-#define FIFO_LENGTH					8192
+//#define FIFO_LENGTH					16777216     //2^24
+#define FIFO_LENGTH					1048576        //1M
 #define FPGA_REG_BASE_ADDR			0x40000000 
 #define FPGA_REG_VER_MAX 			0x00
 #define FPGA_REG_VER_MIN 			0x04
@@ -117,9 +123,9 @@ static irqreturn_t pal_rx_interrupt(int irq, void *dev_id);
 static irqreturn_t asi_rx_interrupt(int irq, void *dev_id);
 
 /* bottom interrupt definitions */
-static void pal_tasklet_func(unsigned long);
+/*static void pal_tasklet_func(unsigned long);*/
 /* 定义一个tasklet结构pal_tasklet，与pal_tasklet_func(data)关联  */
-DECLARE_TASKLET(pal_tasklet,pal_tasklet_func,0);
+/*DECLARE_TASKLET(pal_tasklet,pal_tasklet_func,0);*/
 
 /*static void asi_tasklet_func(unsigned long);
 DECLARE_TASKLET(asi_tasklet,asi_tasklet_func,0);*/
@@ -133,19 +139,26 @@ static unsigned int pal_read32(void __iomem *addr) {
 }
 
 struct pal_proc_fs_t {
+	int         pal_interrupt_cnt;
 	int 		pal_rx_ping_int_cnt;
 	int  		pal_rx_pong_int_cnt;
-	int 		asi_rx_ping_int_cnt;
-	int  		asi_rx_pong_int_cnt;
 	int         pal_kfifo_empty_cnt;
 	int         pal_kfifo_full_cnt;
+	int         pal_not_ping_pong_int_cnt;
+
+	int         asi_interrupt_cnt;
+	int 		asi_rx_ping_int_cnt;
+	int  		asi_rx_pong_int_cnt;
 	int         asi_kfifo_empty_cnt;
 	int         asi_kfifo_full_cnt;
+	int         asi_not_ping_pong_int_cnt;
+
+	int         unkonw_read_error_cnt;
 }pal_proc_fs;
 
 /* 设备结构体 */
 struct pal_dev {
-	//dev_t devnum;			//设备号
+	dev_t devnum;			//设备号
 	struct cdev cdev;
 	struct device *pal_device;
 	struct kfifo *fifo;	
@@ -153,7 +166,7 @@ struct pal_dev {
 
 	spinlock_t 			lock;
 	wait_queue_head_t	pal_queue;
-	int                 pal_rx_interrupt_flag;
+	int                 rx_interrupt_flag;
 	struct pal_info 	pal_info;
 	struct pal_fpga_ver pal_fpga_ver;
 	int    				irq;		      /* irq number */
@@ -168,26 +181,26 @@ struct pal_dev {
 
 static struct pal_dev paldev[]={
 	{
-		//.devnum = 0,
-		.fifo   			= (struct kfifo *)&g_pal_fifo,
-		.irq    			= PAL_RX_IRQ_NUMBER,
-		.irq_init_flag 		= 0,
-		.handler 		    = pal_rx_interrupt,
-		.name 				= "pal rx",
+		.devnum = 0,
+		.fifo   				= (struct kfifo *)&g_pal_fifo,
+		.irq    				= PAL_RX_IRQ_NUMBER,
+		.irq_init_flag 			= 0,
+		.handler 		    	= pal_rx_interrupt,
+		.name 					= "pal rx",
 		.read_fn				= pal_read32,
 		.write_fn				= pal_write32,
-		.pal_rx_interrupt_flag 	= 0,
+		.rx_interrupt_flag 		= 0,
 	},
 	{
-		//.devnum = 1,
-		.fifo    			= (struct kfifo *)&g_pal_fifo,
-		.irq     			= ASI_RX_IRQ_NUMBER,
-		.irq_init_flag 		= 0,
-		.handler 		    = asi_rx_interrupt,
+		.devnum = 1,
+		.fifo    				= (struct kfifo *)&g_pal_fifo,
+		.irq     				= ASI_RX_IRQ_NUMBER,
+		.irq_init_flag 			= 0,
+		.handler 		    	= asi_rx_interrupt,
 		.name 					= "asi rx",
 		.read_fn				= pal_read32,
 		.write_fn				= pal_write32,
-		.pal_rx_interrupt_flag  = 0,
+		.rx_interrupt_flag  	= 0,
 	}
 };
 #define NBR_DEVICE ARRAY_SIZE(paldev)
@@ -205,7 +218,7 @@ int pal_open (struct inode *inode, struct file *filp)
 
 	int major = imajor(inode);
 	int minor = iminor(inode);
-	pr_info("%s: major=%d, minor=%d\n", __func__, major, minor);
+	//pr_info("%s: major=%d, minor=%d\n", __func__, major, minor);
 
 	i = iminor(inode);
 	switch(i) 
@@ -237,7 +250,7 @@ int pal_release (struct inode *inode, struct file *filp)
 {
 	struct pal_dev *pal_dev;
 
-	pr_info("%s \n", __func__);
+	//pr_info("%s \n", __func__);
 	switch(iminor(inode)) 
 	{
 		case 0:
@@ -253,23 +266,78 @@ int pal_release (struct inode *inode, struct file *filp)
 
 ssize_t pal_read (struct file *filp, char __user *buf, size_t count, loff_t *pos)
 {
-	int ret;
-	unsigned int copied_count = 0;
+	int ret = -1;
+
+
 	struct pal_dev *dev = filp->private_data;
-	pr_info("%s \n", __func__);	
-	wait_event_interruptible(dev->pal_queue, dev->pal_rx_interrupt_flag);
-	dev->pal_rx_interrupt_flag = 0;
+	pr_info("%s kfifo_len is 0x%x kfifo_avail is 0x%x.\n", __func__,kfifo_len(dev->fifo),kfifo_avail(dev->fifo));
+
+#ifdef DEBUG
+
+	unsigned int copied_count = 0;
+
+	wait_event_interruptible(dev->pal_queue, test_condition);
+	test_condition = 0;
 
 	if ((0 == count) || (count > FIFO_LENGTH) || (count  > kfifo_len(dev->fifo)) || kfifo_len(dev->fifo))
 		count = kfifo_len(dev->fifo);
 
 	ret = kfifo_to_user(dev->fifo, buf, count, &copied_count);
+	//pr_info("%s ：%s, count=%d, copied_count=%d\n", __func__, dev->fifo->buf,  count, copied_count);
 	if(ret != 0) {
 		return -EIO;
 	}
-	pr_info("%s ：%s, count=%d, copied_count=%d\n", __func__, dev->fifo->buf,  count, copied_count);
-
 	return copied_count;
+
+#else
+
+	int pal_rx_len = 0;
+	int pal_dma_status = 0;	
+	wait_event_interruptible(dev->pal_queue, dev->pal_rx_interrupt_flag);
+	dev->rx_interrupt_flag = 0;
+
+
+
+	if (0 == dev->devnum ) { 
+		pal_rx_len 		= paldev[dev->devnum].read_fn(dev_base + PAL_FRAME_LEN);
+		pal_dma_status 	= paldev[dev->devnum].read_fn(dev_base + PAL_DMA_STATUS);	
+		if (PAL_PING_DMA_COMPLETE == (pal_dma_status | PAL_PING_DMA_COMPLETE)) {
+			ret = copy_to_user(buf,pal_rx_ping_base,pal_rx_len)
+			pal_proc_fs.pal_rx_ping_int_cnt += 1;
+		}
+		else if (PAL_PONG_DMA_COMPLETE == (pal_dma_status | PAL_PONG_DMA_COMPLETE)) {
+			ret = copy_to_user(buf,pal_rx_pong_base,pal_rx_len);
+			pal_proc_fs.pal_rx_pong_int_cnt += 1;
+		}
+		else {
+			pal_proc_fs.pal_not_ping_pong_int_cnt += 1;
+		}
+	}	
+	else if (1 == devnum) {
+		pal_rx_len 		= paldev[dev->devnum].read_fn(dev_base + ASI_FRAME_LEN);
+		pal_dma_status 	= paldev[dev->devnum].read_fn(dev_base + ASI_DMA_STATUS);
+		if (ASI_PING_DMA_COMPLETE == (asi_dma_status | ASI_PING_DMA_COMPLETE)) {
+			ret = copy_to_user(buf,asi_rx_ping_base,pal_rx_len)
+			pal_proc_fs.asi_rx_ping_int_cnt += 1;
+		}
+		else if (PAL_PONG_DMA_COMPLETE == (asi_dma_status | ASI_PONG_DMA_COMPLETE)) {
+			ret = copy_to_user(buf,asi_rx_pong_base,pal_rx_len);
+			pal_proc_fs.asi_rx_pong_int_cnt += 1;
+		}
+		else {
+			pal_proc_fs.asl_not_ping_pong_int_cnt += 1;
+		}
+	}
+	else {
+		pal_proc_fs.unkonw_read_error_cnt += 1;
+	}
+
+	if(ret != 0) {
+		return -EIO;
+	}
+	return pal_rx_len;
+
+#endif	
 }
 
 ssize_t pal_write (struct file *filp, const char __user *buf, size_t count, loff_t *pos)
@@ -277,13 +345,19 @@ ssize_t pal_write (struct file *filp, const char __user *buf, size_t count, loff
 	int ret;
 	unsigned int copied_count=0;
 	struct pal_dev *dev = filp->private_data;
-	pr_info("%s \n", __func__);
+	//pr_info("%s \n", __func__);
+
+#ifdef DEBUG
+	test_condition=1;
+	wake_up(&dev->pal_queue);
 
 	ret = kfifo_from_user(dev->fifo, buf, count, &copied_count);
 	if(ret != 0) {
 		return -EIO;
 	}
-	pr_info("%s ：%s, count=%d, copied_count=%d\n", __func__, dev->fifo->buf,  count, copied_count);
+#endif
+
+	//pr_info("%s ：%s, count=%d, copied_count=%d\n", __func__, dev->fifo->buf,  count, copied_count);
 
 	return copied_count;
 }
@@ -520,8 +594,20 @@ void pal_tasklet_func(unsigned long data) {
 
 	pal_rx_len 		= paldev[0].read_fn(dev_base + PAL_FRAME_LEN);
 	pal_dma_status 	= paldev[0].read_fn(dev_base + PAL_DMA_STATUS); 
+
+	if (kfifo_is_empty(&g_pal_fifo)) {
+		pal_proc_fs.pal_kfifo_empty_cnt += 1;
+	}
+
+	if(kfifo_is_full(&g_pal_fifo)) {
+		pal_proc_fs.pal_kfifo_full_cnt += 1;
+	}
+
 	if (PAL_PING_DMA_COMPLETE == (pal_dma_status | PAL_PING_DMA_COMPLETE)) {
+/*		if (kfifo_avail(&g_pal_fifo) >= pal_rx_max_len) {
+		}*/
 		kfifo_in(&g_pal_fifo,pal_rx_ping_base,pal_rx_max_len);
+		
 		pal_proc_fs.pal_rx_ping_int_cnt += 1;
 	}
 	if (PAL_PONG_DMA_COMPLETE == (pal_dma_status | PAL_PONG_DMA_COMPLETE)) {
@@ -529,7 +615,7 @@ void pal_tasklet_func(unsigned long data) {
 		pal_proc_fs.pal_rx_pong_int_cnt += 1;
 	}
 
-	paldev[0].pal_rx_interrupt_flag = 1;
+	paldev[0].rx_interrupt_flag = 1;
 	wake_up(&paldev[0].pal_queue);
 
 	pr_info("%s: pal_dma_status=0x%x,pal_rx_len=0x%x.\n", __func__, pal_dma_status,pal_rx_max_len);
@@ -544,7 +630,11 @@ static irqreturn_t pal_rx_interrupt(int irq, void *dev_id)
 
 	spin_lock_irqsave(&paldev[0].irq_lock, flags);
 
-	tasklet_schedule(&pal_tasklet);
+	//tasklet_schedule(&pal_tasklet);
+	pal_proc_fs.pal_interrupt_cnt += 1;
+
+	paldev[0].rx_interrupt_flag = 1;
+	wake_up(&paldev[0].pal_queue);
 
 	spin_unlock_irqrestore(&paldev[0].irq_lock, flags);
 
@@ -556,14 +646,34 @@ static irqreturn_t pal_rx_interrupt(int irq, void *dev_id)
 static irqreturn_t asi_rx_interrupt(int irq, void *dev_id)
 {
 	int handled = 0;
-	int asi_rx_len = 0;
-	int asi_dma_status = 0;
 	unsigned long flags;
 
 	spin_lock_irqsave(&paldev[1].irq_lock, flags);
 
+	pal_proc_fs.asi_interrupt_cnt += 1;
+
+	paldev[1].rx_interrupt_flag = 1;
+	wake_up(&paldev[1].pal_queue);
+
+	handled = 1;
+	spin_unlock_irqrestore(&paldev[1].irq_lock, flags);
+	return IRQ_RETVAL(handled);
+
+/*	
+	int asi_rx_len = 0;
+	int asi_dma_status = 0;
+
 	asi_rx_len 		= paldev[1].read_fn(dev_base + ASI_FRAME_LEN);
 	asi_dma_status 	= paldev[1].read_fn(dev_base + ASI_DMA_STATUS);
+
+	if (kfifo_is_empty(&g_asi_fifo)) {
+		pal_proc_fs.asi_kfifo_empty_cnt += 1;
+	}
+
+	if(kfifo_is_full(&g_asi_fifo)) {
+		pal_proc_fs.asi_kfifo_full_cnt += 1;
+	}
+
 	if (ASI_PING_DMA_COMPLETE == (asi_dma_status | ASI_PING_DMA_COMPLETE)) {
 		kfifo_in(&g_asi_fifo,asi_rx_ping_base,asi_rx_max_len);
 		pal_proc_fs.asi_rx_ping_int_cnt += 1;
@@ -573,13 +683,8 @@ static irqreturn_t asi_rx_interrupt(int irq, void *dev_id)
 		pal_proc_fs.asi_rx_pong_int_cnt += 1;
 	}
 	pr_info("%s: asi_dma_status=0x%x,asi_rx_len=0x%x.\n", __func__, asi_dma_status,asi_rx_len);
-	handled = 1;
+*/
 
-	paldev[0].pal_rx_interrupt_flag = 1;
-	wake_up(&paldev[0].pal_queue);
-
-	spin_unlock_irqrestore(&paldev[1].irq_lock, flags);
-	return IRQ_RETVAL(handled);
 } /* asi_rx_interrupt */
 
 #if 0
@@ -644,14 +749,19 @@ static int pal_mem_exit() {
 /* pal proc fs for debug */
 static struct proc_dir_entry *pal_proc_root = NULL;
 static int pal_proc_show(struct seq_file *m, void *v) {
-    seq_printf(m, "pal_rx_ping_int_cnt : 0x%08X\n", pal_proc_fs.pal_rx_ping_int_cnt);
-	seq_printf(m, "pal_rx_pong_int_cnt : 0x%08X\n", pal_proc_fs.pal_rx_pong_int_cnt);
-	seq_printf(m, "asi_rx_ping_int_cnt : 0x%08X\n", pal_proc_fs.asi_rx_ping_int_cnt);
-	seq_printf(m, "asi_rx_pong_int_cnt : 0x%08X\n", pal_proc_fs.asi_rx_pong_int_cnt);
-    seq_printf(m, "pal_kfifo_empty_cnt : 0x%08X\n", pal_proc_fs.pal_kfifo_empty_cnt);
-	seq_printf(m, "pal_kfifo_full_cnt  : 0x%08X\n", pal_proc_fs.pal_kfifo_full_cnt);
-	seq_printf(m, "asi_kfifo_empty_cnt : 0x%08X\n", pal_proc_fs.asi_kfifo_empty_cnt);
-	seq_printf(m, "asi_kfifo_full_cnt  : 0x%08X\n", pal_proc_fs.asi_kfifo_full_cnt);
+	seq_printf(m, "pal_interrupt_cnt 				: 0x%08X\n", pal_proc_fs.pal_interrupt_cnt);
+    seq_printf(m, "pal_rx_ping_int_cnt 				: 0x%08X\n", pal_proc_fs.pal_rx_ping_int_cnt);
+	seq_printf(m, "pal_rx_pong_int_cnt				: 0x%08X\n", pal_proc_fs.pal_rx_pong_int_cnt);
+	seq_printf(m, "pal_not_ping_pong_int_cnt		  	: 0x%08X\n\n", pal_proc_fs.pal_not_ping_pong_int_cnt);
+    seq_printf(m, "pal_kfifo_empty_cnt 				: 0x%08X\n", pal_proc_fs.pal_kfifo_empty_cnt);
+	seq_printf(m, "pal_kfifo_full_cnt  				: 0x%08X\n\n", pal_proc_fs.pal_kfifo_full_cnt);	
+	seq_printf(m, "asi_interrupt_cnt 				: 0x%08X\n", pal_proc_fs.asi_interrupt_cnt);
+    seq_printf(m, "asi_rx_ping_int_cnt 				: 0x%08X\n", pal_proc_fs.asi_rx_ping_int_cnt);
+	seq_printf(m, "asi_rx_pong_int_cnt 				: 0x%08X\n", pal_proc_fs.asi_rx_pong_int_cnt);
+	seq_printf(m, "asi_not_ping_pong_int_cn  			: 0x%08X\n\n", pal_proc_fs.asi_not_ping_pong_int_cnt);	
+    seq_printf(m, "asi_kfifo_empty_cnt 				: 0x%08X\n", pal_proc_fs.asi_kfifo_empty_cnt);
+	seq_printf(m, "asi_kfifo_full_cnt  				: 0x%08X\n\n", pal_proc_fs.asi_kfifo_full_cnt);
+	seq_printf(m, "unkonw_read_error_cnt  				: 0x%08X\n\n", pal_proc_fs.unkonw_read_error_cnt);
 
 	return 0;
 }
