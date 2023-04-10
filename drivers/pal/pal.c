@@ -152,6 +152,8 @@ struct pal_dev {
 	struct mutex pal_mutex;
 
 	spinlock_t 			lock;
+	wait_queue_head_t	pal_queue;
+	int                 pal_rx_interrupt_flag;
 	struct pal_info 	pal_info;
 	struct pal_fpga_ver pal_fpga_ver;
 	int    				irq;		      /* irq number */
@@ -174,6 +176,7 @@ static struct pal_dev paldev[]={
 		.name 				= "pal rx",
 		.read_fn				= pal_read32,
 		.write_fn				= pal_write32,
+		.pal_rx_interrupt_flag 	= 0,
 	},
 	{
 		//.devnum = 1,
@@ -184,6 +187,7 @@ static struct pal_dev paldev[]={
 		.name 					= "asi rx",
 		.read_fn				= pal_read32,
 		.write_fn				= pal_write32,
+		.pal_rx_interrupt_flag  = 0,
 	}
 };
 #define NBR_DEVICE ARRAY_SIZE(paldev)
@@ -214,6 +218,8 @@ int pal_open (struct inode *inode, struct file *filp)
 					pr_err("Can't alloc %s rx IRQ",((i == 0) ? DEVICE_NAME : ASI_DEVICE_NAME));
 					return -1;
 				}
+				/* Initial wait queue */
+				init_waitqueue_head(&paldev[i].pal_queue); 
 				paldev[i].irq_init_flag = 1;
 			}
 
@@ -251,6 +257,8 @@ ssize_t pal_read (struct file *filp, char __user *buf, size_t count, loff_t *pos
 	unsigned int copied_count = 0;
 	struct pal_dev *dev = filp->private_data;
 	pr_info("%s \n", __func__);	
+	wait_event_interruptible(dev->pal_queue, dev->pal_rx_interrupt_flag);
+	dev->pal_rx_interrupt_flag = 0;
 
 	if ((0 == count) || (count > FIFO_LENGTH) || (count  > kfifo_len(dev->fifo)) || kfifo_len(dev->fifo))
 		count = kfifo_len(dev->fifo);
@@ -520,6 +528,10 @@ void pal_tasklet_func(unsigned long data) {
 		kfifo_in(&g_pal_fifo,pal_rx_pong_base,pal_rx_max_len);
 		pal_proc_fs.pal_rx_pong_int_cnt += 1;
 	}
+
+	paldev[0].pal_rx_interrupt_flag = 1;
+	wake_up(&paldev[0].pal_queue);
+
 	pr_info("%s: pal_dma_status=0x%x,pal_rx_len=0x%x.\n", __func__, pal_dma_status,pal_rx_max_len);
 
 	return ;
@@ -562,6 +574,9 @@ static irqreturn_t asi_rx_interrupt(int irq, void *dev_id)
 	}
 	pr_info("%s: asi_dma_status=0x%x,asi_rx_len=0x%x.\n", __func__, asi_dma_status,asi_rx_len);
 	handled = 1;
+
+	paldev[0].pal_rx_interrupt_flag = 1;
+	wake_up(&paldev[0].pal_queue);
 
 	spin_unlock_irqrestore(&paldev[1].irq_lock, flags);
 	return IRQ_RETVAL(handled);
