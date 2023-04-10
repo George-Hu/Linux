@@ -153,7 +153,7 @@ struct pal_proc_fs_t {
 	int         asi_kfifo_full_cnt;
 	int         asi_not_ping_pong_int_cnt;
 
-	int         unkonw_read_error_cnt;
+	int         unknow_read_error_cnt;
 }pal_proc_fs;
 
 /* 设备结构体 */
@@ -329,7 +329,7 @@ ssize_t pal_read (struct file *filp, char __user *buf, size_t count, loff_t *pos
 		}
 	}
 	else {
-		pal_proc_fs.unkonw_read_error_cnt += 1;
+		pal_proc_fs.unknow_read_error_cnt += 1;
 	}
 
 	if(ret != 0) {
@@ -761,7 +761,7 @@ static int pal_proc_show(struct seq_file *m, void *v) {
 	seq_printf(m, "asi_not_ping_pong_int_cn  			: 0x%08X\n\n", pal_proc_fs.asi_not_ping_pong_int_cnt);	
     seq_printf(m, "asi_kfifo_empty_cnt 				: 0x%08X\n", pal_proc_fs.asi_kfifo_empty_cnt);
 	seq_printf(m, "asi_kfifo_full_cnt  				: 0x%08X\n\n", pal_proc_fs.asi_kfifo_full_cnt);
-	seq_printf(m, "unkonw_read_error_cnt  				: 0x%08X\n\n", pal_proc_fs.unkonw_read_error_cnt);
+	seq_printf(m, "unknow_read_error_cnt  				: 0x%08X\n\n", pal_proc_fs.unknow_read_error_cnt);
 
 	return 0;
 }
