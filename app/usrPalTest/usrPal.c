@@ -23,7 +23,6 @@ int dma_mmap(unsigned long addr_p, unsigned int len, unsigned char **addr_v)
 	printf("base addr:0x%lx\n", base_addr);
 
 	mem = mmap(0, len + offset, PROT_READ | PROT_WRITE, MAP_SHARED,fd, base_addr);
-	//mem = mmap(0, len + offset, PROT_READ , MAP_SHARED,fd, base_addr);
 	if (mem == MAP_FAILED) {
 		close(fd);
 		fprintf(stderr, "fail to mmap /dev/mem in 0x%lx - %d\n",
@@ -38,29 +37,6 @@ int dma_mmap(unsigned long addr_p, unsigned int len, unsigned char **addr_v)
 
 	close(fd);
 
-#if 0  //test ok,2023-04-11
-	unsigned long addr;
-	unsigned char content;
-	
-	for (;i < 0xff; ++i)
-	{
-		addr = (unsigned long)(mem + i);
-		content = mem[i];
-		printf("address: 0x%lx   content 0x%x\t\t", addr, (unsigned int)content);
-		mem[i] = (unsigned char)i;
-		content = mem[i];
-		printf("updated address: 0x%lx   content 0x%x\n", addr, (unsigned int)content);
-	}
-#endif
-
-/*	//*addr_v = mem + offset;
-	
-	printf("mem + offset : %pf\n",(mem + offset));
-
-
-	printf("(*(mem + offset ) is: 0x%x.\n\n",*(mem + offset ));
-	printf("((volatile unsigned long *)*(mem + offset ) is: 0x%x.\n\n",(volatile unsigned long *)*(mem + offset ));
-*/
 	return 0;
 }
 

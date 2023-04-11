@@ -16,3 +16,4 @@ clean:
 	rm -rf lib*
 	rm -rf usrPalTest
 	rm -rf usrPalTest.static
+	rm -rf *.o
