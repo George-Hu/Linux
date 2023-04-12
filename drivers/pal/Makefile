@@ -1,27 +1,25 @@
-# CROSS_COMPILE = /home/share/FMQL-Linux-SDK-Prj-20220223/gcc-linaro-7.3.1-2018.05-x86_64_arm-linux-gnueabihf/bin/arm-linux-gnueabihf-
+CROSS_COMPILE = /home/share/FMQL-Linux-SDK-Prj-20220223/gcc-linaro-7.3.1-2018.05-x86_64_arm-linux-gnueabihf/bin/arm-linux-gnueabihf-
+KERN_DIR=/home/share/FMQL-Linux-SDK-Prj-20220223/linux-4.14.55-fmsh
 
-# target := pal
+LOCAL_KERN_DIR := /lib/modules/$(shell uname -r)/build
 
-# obj-m = $(target).o
+target := pal
 
-# KERN_DIR=/home/share/FMQL-Linux-SDK-Prj-20220223/linux-4.14.55-fmsh
+obj-m = $(target).o
 
-# all:
-# 	make ARCH=arm CROSS_COMPILE=${CROSS_COMPILE} -C $(KERN_DIR) M=${PWD} modules 
 
-# clean:
-# 	rm -rf  *.ko 
-# 	rm -rf  *.o 
-# 	rm -rf Module.* 
-# 	rm -rf modules.order 
-# 	rm -rf *mod.c 
-# 	rm -rf .tmp_versions
+local:  # x86_64 ubuntu
+	$(MAKE)  -C $(LOCAL_KERN_DIR) M=$(PWD) modules
 
-KDIR := /lib/modules/$(shell uname -r)/build
+all:    # cross_compile
+	make ARCH=arm CROSS_COMPILE=${CROSS_COMPILE} -C $(KERN_DIR) M=${PWD} modules 
 
-obj-m := pal.o
-all :
-	$(MAKE) -C $(KDIR) M=$(PWD) modules
 clean:
-	$(MAKE) -C $(KDIR) SUBDIRS=$(PWD) clean
-	rm -f *.ko
+	rm -rf  *.ko 
+	rm -rf  *.o 
+	rm -rf Module.* 
+	rm -rf modules.order 
+	rm -rf *mod.c 
+	rm -rf .tmp_versions
+	rm -rf  pal.o.ur-safe
+
