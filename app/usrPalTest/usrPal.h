@@ -9,8 +9,8 @@
 #include <string.h>
 #include <sys/mman.h>
 
-int dma_mmap(unsigned long addr_p, unsigned int len, unsigned char **addr_v);
-unsigned int dma_munmap(unsigned char *addr_v, unsigned long addr_p,unsigned int len);
-
+int pal_dma_mmap(unsigned long addr_p, unsigned int len, unsigned char **addr_v);
+unsigned int pal_dma_munmap(unsigned char *addr_v, unsigned long addr_p,unsigned int len);
+ssize_t pal_read(int fd,void *buf,size_t count);
 
 #endif

@@ -5,7 +5,11 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
-int dma_mmap(unsigned long addr_p, unsigned int len, unsigned char **addr_v)
+#include "pal.h"
+
+#define DEBUG
+
+int pal_dma_mmap(unsigned long addr_p, unsigned int len, unsigned char **addr_v)
 {
 	int fd;
 	int i = 0;
@@ -40,7 +44,7 @@ int dma_mmap(unsigned long addr_p, unsigned int len, unsigned char **addr_v)
 	return 0;
 }
 
-unsigned int dma_munmap(unsigned char *addr_v, unsigned long addr_p,unsigned int len)
+unsigned int pal_dma_munmap(unsigned char *addr_v, unsigned long addr_p,unsigned int len)
 {
 	int ret;
 	unsigned int pagesize = getpagesize();
@@ -58,4 +62,61 @@ unsigned int dma_munmap(unsigned char *addr_v, unsigned long addr_p,unsigned int
 	return 0;
 }
 
+/*
+	pal数据阻塞读接口
+*/
+ssize_t pal_read(int fd,void *buf,size_t count) {
+/*
+	1、open /dev/pal0 打开设备，挂中断;
+	2、read 阻塞读，读取中断的ping或者pong内存物理地址以及接收数据帧的长度;
+	----------
+		fd 		:	文件描述符
+  		buf		:	从buf缓冲区中读入数据到文件
+         		(这里读出当前pal ping/pong内存区的起始物理地址4字节，以及接收的ping/pong数据的长度4字节)
+  		count	: 	读入的字节数8
+  		返回值	:	成功则返回实际读到的字节数，失败则返回-1.
+  	---- 
+	3、pal_dma_mmap 映射ping或者pong内存的物理地址，长度为接收帧的长度
+	4、读取数据
+	5、pal_dma_unmap解除物理地址映射.
+*/
+	int ret = -1;
+	int i = 0;
+	unsigned char *addr_v;
+	struct pal_phycisal_info physical_info;
+
+	ret = read(fd,(unsigned char *)&physical_info,sizeof(struct pal_phycisal_info));
+	if (ret > 0 )
+	{
+		printf("pal_read OK!\n");
+#ifdef DEBUG		
+		printf("physical_info.pal_data_addr = 0x%x.\n",physical_info.pal_data_addr);
+		printf("physical_info.pal_data_len  = 0x%x.\n",physical_info.pal_data_len);
+#endif
+	}
+	else {
+		printf("pal_read Failed! ret = 0x%x.\n",ret);
+	}
+
+	ret = pal_dma_mmap(physical_info.pal_data_addr,physical_info.pal_data_len,&addr_v);
+
+	if (!ret ) {
+/*		for(i=0;i<physical_info.pal_data_len;i++) {
+			if ((0 == i) || ((i%16) == 0)) {
+				printf("0x%016x:",i);
+			}
+			printf("0x%02x ",*(addr_v + i));
+			if ((i+1)%16 == 0) {
+				printf("\n");
+			}		
+		}*/
+	}
+	memcpy(buf,addr_v,physical_info.pal_data_len);
+	ret = pal_dma_munmap(addr_v,physical_info.pal_data_addr,physical_info.pal_data_len);	
+	
+	if (!ret) {
+		ret = physical_info.pal_data_len;
+	}
+	return ret;
+}
 
