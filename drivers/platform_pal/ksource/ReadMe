@@ -1,0 +1,32 @@
+
+
+
+
+1.创建2个模块注册C文件(包含module_init,moudule_exit,GPL申明的C文件)
+pal_device.c 
+设备硬件部分(硬件改变，平台移植后需要修改的部分，具有硬件特性)
+
+pal_driver.c 
+设备驱动部分(无关硬件平台，设备的操作逻辑部分)
+
+2.在pal_device.c中需要实现2个结构体和三个函数（平台设备注册+平台设备注销）
+(1)platform_device  平台设备结构体：主要是对硬件的资源描述，硬件的名称，硬件的资源数量，设备资源结构体集合数组，硬件的编号等；
+
+(2)resource 上个结构体platform_device 的成员：包含资源的起始，资源的结束，资源的名字，资源的类型,struct device dev;#设备通用属性结构体（包含平台设备模块注销会调用到的release函数）等；
+
+(3)release();函数，platform_device 平台设备结构体成员struct device dev成员的成员；
+
+(4)platform_device_register();平台设备注册函数，一般在设备init函数中实现，有返回值，注册成功返回0，失败返回负数；可以通过返回值查看当前设备有没有注册成功；注册成功会在/sys/devices/platform/目录下生成文件
+
+(5)platform_device_unregister();平台设备注销函数，没有返回值；
+
+
+
+3.在pal_driver.c中需要实现1个结构体，4个函数
+(1)platform_driver 平台驱动结构体：probe成员函数，remove成员函数，struct device_driver结构体成员一般需要配置.name和owner成员
+(2)probe函数：在platform将device和driver文件匹配成功时，会自动执行的函数，他们的匹配是通过platform_device结构体和platform_driver结构体中的name字符串匹配的;一般驱动的功能都在此实现；const struct platform_device_id *id_table;该成员作用与platform_driver结构体中的name成员结构体作用一致，但是该成员的优先级更高，用于匹配
+
+(3)remove函数：driver模块注销时会自动执行，driver的卸载函数
+(4)platform_driver_register();驱动注册函数，在驱动init函数中实现
+(5)platform_driver_unregister();驱动注销函数，在驱动exit函数中实现
+
