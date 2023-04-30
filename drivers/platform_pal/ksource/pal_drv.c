@@ -512,6 +512,31 @@ data_err:
 	return err;
 }
 
+static void platform_device_show(struct platform_device *pdev) {
+	pr_info("%s ---> platform_device --->\n",__func__);
+	pr_info("name    :0x%x.\n",pdev->name);
+	pr_info("id      :0x%x.\n",pdev->id);
+	pr_info("id_auto :%s.\n",pdev->id_auto);
+	pr_info("num_resources:0x%lx.\n",pdev->num_resources);
+	pr_info("\n%s ---> platform_device->device --->\n",__func__);
+	pr_info("dev.init_name:%s.\n",pdev->dev.init_name);
+	pr_info("dev.devt:%s.\n",pdev->dev.devt);
+	pr_info("dev.id:%s.\n",pdev->dev.id);
+	pr_info("dev.offline:%s.\n",pdev->dev.offline);
+	pr_info("\n%s ---> platform_device->resource --->\n",__func__);
+	
+	pr_info("res.start :0x%lx.\n",pdev->resource->start);
+	pr_info("res.end :0x%lx.\n",pdev->resource->end);
+	pr_info("res.name :%s.\n",pdev->resource->name);
+	pr_info("res.flags :0x%lx.\n",pdev->resource->flags);
+	pr_info("res.desc :0x%lx.\n",pdev->resource->desc);
+	pr_info("\n%s ---> platform_device->platform_device_id --->\n",__func__);
+	pr_info("id_entry.name :%s.\n",pdev->id_entry->name);
+	pr_info("id_entry.driver_data :0x%lx.\n",pdev->id_entry->driver_data);
+
+
+}
+
 static int platform_pal_remove(struct platform_device *pdev) 
 {
 	struct platform_pal_dev *ppd;
@@ -521,25 +546,41 @@ static int platform_pal_remove(struct platform_device *pdev)
 	if (!ppd)
 		return -ENODEV;
 
+	if(!pdev)
+		platform_device_show(pdev);
+
 	//pr_info("%s [ppd->cdev.count = %d, ppd->cdev.dev = %d ]\n ",__func__,ppd->cdev.count, ppd->cdev.dev);
 
 	unregister_chrdev(pal_major, DEVICE_NAME);
+	if(!pdev)
+		platform_device_show(pdev);
 	device_destroy(pal_class, MKDEV(pal_major, pdev->id));
+	if(!pdev)
+		platform_device_show(pdev);
 	if (!pdev->id)
 		class_destroy(pal_class);
+
+	if(!pdev)
+		platform_device_show(pdev);
 	cdev_del(&ppd->cdev);
 
 	if (ppd->irq_init_flag == 1) {
 		devm_free_irq(ppd->dev, ppd->irq, ppd);
 		pr_info("%s free_irq %d ok \n", __func__, ppd->irq);
 	}
+	if(!pdev)
+		platform_device_show(pdev);
 
 	if(!ppd->io_base) {
 		devm_iounmap(ppd->dev,ppd->io_base);
 		pr_info("%s devm_iounmap 0x%p ok \n", __func__, ppd->io_base);
 	}
+	if(!pdev)
+		platform_device_show(pdev);
 
 	cleanup_pal_procfs();
+	if(!pdev)
+		platform_device_show(pdev);
 	pr_info("%s ok \n", __func__);
 	return 0;
 }

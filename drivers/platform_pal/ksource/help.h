@@ -173,3 +173,159 @@ struct platform_device {
 	/* arch specific additions */
 	struct pdev_archdata	archdata;
 };
+
+struct device {
+	struct device		*parent;
+
+	struct device_private	*p;
+
+	struct kobject kobj;
+	const char		*init_name; /* initial name of the device */
+	const struct device_type *type;
+
+	struct mutex		mutex;	/* mutex to synchronize calls to
+					 * its driver.
+					 */
+
+	struct bus_type	*bus;		/* type of bus device is on */
+	struct device_driver *driver;	/* which driver has allocated this
+					   device */
+	void		*platform_data;	/* Platform specific data, device
+					   core doesn't touch it */
+	void		*driver_data;	/* Driver data, set and get with
+					   dev_set/get_drvdata */
+	struct dev_links_info	links;
+	struct dev_pm_info	power;
+	struct dev_pm_domain	*pm_domain;
+
+#ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
+	struct irq_domain	*msi_domain;
+#endif
+#ifdef CONFIG_PINCTRL
+	struct dev_pin_info	*pins;
+#endif
+#ifdef CONFIG_GENERIC_MSI_IRQ
+	struct list_head	msi_list;
+#endif
+
+#ifdef CONFIG_NUMA
+	int		numa_node;	/* NUMA node this device is close to */
+#endif
+	const struct dma_map_ops *dma_ops;
+	u64		*dma_mask;	/* dma mask (if dma'able device) */
+	u64		coherent_dma_mask;/* Like dma_mask, but for
+					     alloc_coherent mappings as
+					     not all hardware supports
+					     64 bit addresses for consistent
+					     allocations such descriptors. */
+	unsigned long	dma_pfn_offset;
+
+	struct device_dma_parameters *dma_parms;
+
+	struct list_head	dma_pools;	/* dma pools (if dma'ble) */
+
+	struct dma_coherent_mem	*dma_mem; /* internal for coherent mem
+					     override */
+#ifdef CONFIG_DMA_CMA
+	struct cma *cma_area;		/* contiguous memory area for dma
+					   allocations */
+#endif
+	/* arch specific additions */
+	struct dev_archdata	archdata;
+
+	struct device_node	*of_node; /* associated device tree node */
+	struct fwnode_handle	*fwnode; /* firmware device node */
+
+	dev_t			devt;	/* dev_t, creates the sysfs "dev" */
+	u32			id;	/* device instance */
+
+	spinlock_t		devres_lock;
+	struct list_head	devres_head;
+
+	struct klist_node	knode_class;
+	struct class		*class;
+	const struct attribute_group **groups;	/* optional groups */
+
+	void	(*release)(struct device *dev);
+	struct iommu_group	*iommu_group;
+	struct iommu_fwspec	*iommu_fwspec;
+
+	bool			offline_disabled:1;
+	bool			offline:1;
+	bool			of_node_reused:1;
+};
+
+
+
+struct kobject {
+	const char		*name;
+	struct list_head	entry;
+	struct kobject		*parent;
+	struct kset		*kset;
+	struct kobj_type	*ktype;
+	struct kernfs_node	*sd; /* sysfs directory entry */
+	struct kref		kref;
+#ifdef CONFIG_DEBUG_KOBJECT_RELEASE
+	struct delayed_work	release;
+#endif
+	unsigned int state_initialized:1;
+	unsigned int state_in_sysfs:1;
+	unsigned int state_add_uevent_sent:1;
+	unsigned int state_remove_uevent_sent:1;
+	unsigned int uevent_suppress:1;
+};
+
+
+
+
+int alloc_chrdev_region(dev_t *dev, unsigned baseminor, unsigned count,
+			const char *name)
+{
+	struct char_device_struct *cd;
+	cd = __register_chrdev_region(0, baseminor, count, name);
+	if (IS_ERR(cd))
+		return PTR_ERR(cd);
+	*dev = MKDEV(cd->major, cd->baseminor);
+	return 0;
+}
+
+
+static inline int register_chrdev(unsigned int major, const char *name,
+				  const struct file_operations *fops)
+{
+	return __register_chrdev(major, 0, 256, name, fops);
+}
+
+int __register_chrdev(unsigned int major, unsigned int baseminor,
+		      unsigned int count, const char *name,
+		      const struct file_operations *fops)
+{
+	struct char_device_struct *cd;
+	struct cdev *cdev;
+	int err = -ENOMEM;
+
+	cd = __register_chrdev_region(major, baseminor, count, name);
+	if (IS_ERR(cd))
+		return PTR_ERR(cd);
+
+	cdev = cdev_alloc();
+	if (!cdev)
+		goto out2;
+
+	cdev->owner = fops->owner;
+	cdev->ops = fops;
+	kobject_set_name(&cdev->kobj, "%s", name);
+
+	err = cdev_add(cdev, MKDEV(cd->major, baseminor), count);
+	if (err)
+		goto out;
+
+	cd->cdev = cdev;
+
+	return major ? 0 : cd->major;
+out:
+	kobject_put(&cdev->kobj);
+out2:
+	kfree(__unregister_chrdev_region(cd->major, baseminor, count));
+	return err;
+}

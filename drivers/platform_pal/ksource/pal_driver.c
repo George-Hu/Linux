@@ -22,11 +22,18 @@
 
 
 #define  X86_64
+#undef USING_ALLOC_CHRDEV_REGION
 
-static int pal_major=0;
+static int pal_first=0;
+static int minor_count=2;
+static int pal_init_proc_flag=0;
+/*static int minor_base=0;
+static int minor_num=2;*/
+
 static struct class *pal_class;
+static int pal_class_destroy_flag=0;
 
-#define DEVICE_NAME 				"pal"
+#define PAL_NAME 			"pal"
 
 #define PONG_ADDR_OFFSET	0x4
 #define RX_LEN_OFFSET		0x8
@@ -177,7 +184,7 @@ ssize_t pal_read_fifo (struct file *filp, char __user *buf, size_t count, loff_t
 	if(ret != 0) {
 		return -EIO;
 	}
-	pr_info("%s ：%s, count=%d, copied_count=%d\n", __func__, ppd->fifo->buf,  count, copied_count);
+	pr_info("%s ：%s, count=%lu, copied_count=%u\n", __func__, ppd->fifo->buf,  count, copied_count);
 
 	return copied_count;
 }
@@ -192,15 +199,17 @@ ssize_t pal_read (struct file *filp, char __user *buf, size_t count, loff_t *pos
 	struct pal_phycisal_info params;
 	struct platform_pal_dev *ppd = filp->private_data;
 
-	int pal_rx_len = 0;
-	int pal_dma_status = 0;
+	int pal_rx_len;
+	int pal_dma_status;
 
 	pr_info("%s ppd->devnum is %d.\n", __func__,ppd->devnum);
 	wait_event_interruptible(ppd->pal_queue, ppd->rx_interrupt_flag);
 	ppd->rx_interrupt_flag = 0;
 
 
-#ifdef X86_64	
+#ifdef X86_64
+	pal_rx_len = 0;
+	pal_dma_status = 0;
 	pal_proc_fs.pal_rx_ping_int_cnt += 1;
 	params.pal_data_addr = 0x00090000;
 	params.pal_data_len  = 0x100;
@@ -300,15 +309,17 @@ ssize_t pal_read_xxx (struct file *filp, char __user *buf, size_t count, loff_t 
 	struct pal_phycisal_info params;
 	struct platform_pal_dev *ppd = filp->private_data;
 
-	int pal_rx_len = 0;
-	int pal_dma_status = 0;
+	int pal_rx_len;
+	int pal_dma_status;
 
 	memset(&params,0,sizeof(struct pal_phycisal_info));
 
 	wait_event_interruptible(ppd->pal_queue, ppd->rx_interrupt_flag);
 	ppd->rx_interrupt_flag = 0;
 
-#ifdef X86_64	
+#ifdef X86_64
+	pal_rx_len = 0;
+	pal_dma_status = 0;
 	pal_proc_fs.pal_rx_ping_int_cnt += 1;
 	params.pal_data_addr = 0x00090000;
 	params.pal_data_len  = 0x100;
@@ -417,7 +428,7 @@ ssize_t pal_write (struct file *filp, const char __user *buf, size_t count, loff
 	ret = kfifo_from_user(ppd->fifo, buf, count, &copied_count);
 	if(ret != 0)
 		return -EIO;
-	pr_info("%s ：%s, count=%d, copied_count=%d\n", __func__, ppd->fifo->buf,  count, copied_count);
+	pr_info("%s ：%s, count=%lu, copied_count=%u\n", __func__, ppd->fifo->buf,  count, copied_count);
 	
 
 	return copied_count;
@@ -642,12 +653,179 @@ err:
 	return err;
 }
 
+#if 0
+static void platform_device_show(struct platform_device *pdev) {
+	pr_info("%s ---> platform_device --->\n",__func__);
+	pr_info("name    :%s.\n",pdev->name);
+	pr_info("id      :0x%x.\n",pdev->id);
+	pr_info("id_auto :0x%x.\n",pdev->id_auto);
+	pr_info("num_resources:0x%x.\n",pdev->num_resources);
+	pr_info("\n%s ---> platform_device->device --->\n",__func__);
+	pr_info("dev.init_name:%s.\n",pdev->dev.init_name);
+	pr_info("dev.devt:%lu.\n",pdev->dev.devt);
+	pr_info("dev.id  : 0x%x.\n",pdev->dev.id);
+	pr_info("dev.offline:0x%x.\n",pdev->dev.offline);
+	pr_info("\n%s ---> platform_device->resource --->\n",__func__);	
+	pr_info("res.start :0x%llx.\n",pdev->resource->start);
+	pr_info("res.end :0x%lx.\n",pdev->resource->end);
+	pr_info("res.name :%s.\n",pdev->resource->name);
+	pr_info("res.flags :0x%lx.\n",pdev->resource->flags);
+	pr_info("res.desc :0x%lx.\n",pdev->resource->desc);
+	pr_info("\n%s ---> platform_device->platform_device_id --->\n",__func__);
+	pr_info("id_entry.name :%s.\n",pdev->id_entry->name);
+	pr_info("id_entry.driver_data :0x%lx.\n",pdev->id_entry->driver_data);
+	return;
+}
+#endif
+
+static int pal_chrdev_register(struct platform_pal_dev *ppd,struct platform_device *pdev)
+{
+	int err = 0;
+	int major;
+	dev_t pal_dev;
+	struct device *class_dev;
+
+	ppd->dev = &pdev->dev;
+
+#ifdef USING_ALLOC_CHRDEV_REGION
+    /* Allocate dynamic major number. */
+    if(!pal_first) {
+		if (alloc_chrdev_region(&pal_first, 0, minor_count, PAL_NAME)) {
+				pr_err("%s, Failed to allocate character device region\n",__func__);
+				return -1;
+		}    	
+    }
+#else
+    if (!pal_first) {
+    	pal_first = register_chrdev(0, PAL_NAME, &platform_pal_fops);
+		if (pal_first < 0) {
+			pr_err("%s: unable to register device\n",__func__);
+			return pal_first;
+		}
+    }
+#endif	
+
+    cdev_init(&ppd->cdev,&platform_pal_fops);
+    ppd->cdev.owner = THIS_MODULE;
+    /* fifo only for debug use */
+    ppd->fifo       = (pdev->id == 0) ? (struct kfifo *)&g_pal_fifo : (struct kfifo *)&g_asi_fifo;
+
+#ifdef USING_ALLOC_CHRDEV_REGION
+    major   = MAJOR(pal_first);
+    pal_dev = (pal_first + pdev->id);
+#else
+    major   = pal_first;
+	pal_dev = MKDEV(pal_first,pdev->id);
+#endif
+    
+    err = cdev_add(&ppd->cdev, pal_dev, 1);
+    if (err)
+    	goto out_cdev;
+    else
+   		pr_info("%s cdev_add %d %d OK.",__func__,major,pdev->id); 
+
+	/* Create a sysfs class for pal */
+	if(!pal_class) {
+		pal_class = class_create(THIS_MODULE, "pal_class");
+		if (IS_ERR(pal_class)) {
+			pr_err("%s failed to create a sysfs class for pal\n",__func__);
+			goto out_class;
+		}
+		else
+			pr_info("%s class_create pal_class OK.\n",__func__);
+	}
+
+	pr_info("============dev_name(&pdev->dev) is %s.\n",dev_name(&pdev->dev));
+
+	/* create /dev/pal0 /dev/asi0 */	
+	class_dev = device_create(pal_class, NULL, pal_dev, NULL,
+			    "%s%d", dev_name(&pdev->dev), 0);
+
+	if (IS_ERR(class_dev)) {
+		err = PTR_ERR(class_dev);
+		pr_err("%s device_create failed, major is %d, minor is %d.\n",__func__, pal_first, pdev->id);
+		goto out_chrdev;
+	}
+
+	if (!pal_init_proc_flag) {
+		init_pal_procfs();
+		pal_init_proc_flag = 1;
+	}
+
+	pr_info("%s OK\n",__func__);
+	return 0;
+
+out_chrdev:
+#ifdef USING_ALLOC_CHRDEV_REGION
+	unregister_chrdev_region(pal_first, minor_count);
+#else
+	unregister_chrdev(pal_first, PAL_NAME);
+#endif
+
+out_class:
+	device_destroy(pal_class, pal_dev);
+	class_destroy(pal_class);
+
+out_cdev:
+	cdev_del(&ppd->cdev);
+
+	return err;
+}
+
+static void pal_chrdev_deregister(struct platform_pal_dev *ppd,struct platform_device *pdev)
+{
+	int major;
+	dev_t pal_dev;
+
+#ifdef USING_ALLOC_CHRDEV_REGION
+	major   = MAJOR(pal_first);
+    pal_dev = (pal_first + pdev->id);
+	unregister_chrdev_region(pal_first, minor_count);
+#else
+	major   = pal_first;
+	pal_dev = MKDEV(pal_first,pdev->id);
+	unregister_chrdev(pal_first, PAL_NAME);
+#endif	
+
+	device_destroy(pal_class, pal_dev);
+
+	if(pal_class_destroy_flag) {
+		class_destroy(pal_class);
+	}
+
+	cdev_del(&ppd->cdev);
+
+	if (ppd->irq_init_flag == 1) {
+		devm_free_irq(ppd->dev, ppd->irq, ppd);
+		pr_info("%s free_irq %d ok \n", __func__, ppd->irq);
+	}
+	
+	if(ppd->io_base) {
+		devm_iounmap(ppd->dev,ppd->io_base);
+		pr_info("%s devm_iounmap 0x%p ok \n", __func__, ppd->io_base);
+	}	
+	
+	if (pal_init_proc_flag) {
+		cleanup_pal_procfs();
+		pal_init_proc_flag = 0;
+	}
+
+	if(pdev->dev.kobj.name) //pal/asi -> parent is platform
+		sysfs_remove_link(&pdev->dev.kobj, "platform");
+	/*
+	sysfs_remove_link(&fan->cdev->device.kobj, "device");
+	*/
+	pal_class_destroy_flag += 1;
+	pr_info("%s ok \n", __func__);
+	return;
+}
+
 static int platform_pal_probe(struct platform_device *pdev) 
 {
 	int err;
 
 	struct platform_pal_dev *ppd;
-	struct device *dev = &pdev->dev;	
+	struct device *dev = &pdev->dev;
 	struct resource res;
 
 	pr_info("%s \n", __func__);
@@ -668,107 +846,55 @@ static int platform_pal_probe(struct platform_device *pdev)
     if (err)
     	goto data_err;
 
-    ppd->io_base =  devm_ioremap_resource(dev, &res);
-    if (IS_ERR(ppd->io_base)) {
-    	err = PTR_ERR(ppd->io_base);
-    	//goto data_err;  //x86-64机器调试，暂时屏蔽 04-28
-    }
     ppd->phys_base = res.start;
 
-    ppd->devnum = pdev->id;
+#if 0
+    ppd->io_base =  devm_ioremap_resource(dev, &res);// 不可以映射已经map的区域
+    if (IS_ERR(ppd->io_base)) {
+    	//err = PTR_ERR(ppd->io_base);
+    	//goto data_err;  //x86-64机器调试，暂时屏蔽 04-28
+    	ppd->io_base = ioremap(res.start,res.end);
+    	if(IS_ERR(ppd->io_base)) {
+    		err = PTR_ERR(ppd->io_base);
+    		goto data_err;
+    	}
+    }
+ #else 
+    ppd->io_base =devm_ioremap(dev, res.start, res.end - res.start + 1);
+    if(IS_ERR(ppd->io_base)) {
+    	err = PTR_ERR(ppd->io_base);
+    	goto data_err;
+    }
+    pr_info("%s, devm_ioremap OK,io_base is %p.\n",__func__,ppd->io_base);
+ #endif   
 
+    ppd->devnum = pdev->id;
     pr_info("%s dev_name(dev) is %s,pdev->id is %d.\n",__func__,dev_name(dev),pdev->id);
 
-    if (!pal_major) {
-    	pal_major = register_chrdev(0, DEVICE_NAME, &platform_pal_fops);
-		if (pal_major < 0) {
-			pr_err("%s: unable to register device\n",__func__);
-			return pal_major;
-		}
-    }
-
-    cdev_init(&ppd->cdev,&platform_pal_fops);
-    ppd->cdev.owner = THIS_MODULE;
-    /* fifo only for debug use */
-    ppd->fifo       = (pdev->id == 0) ? (struct kfifo *)&g_pal_fifo : (struct kfifo *)&g_asi_fifo;
-
-    err = cdev_add(&ppd->cdev, MKDEV(pal_major,pdev->id), 1);
+    err = pal_chrdev_register(ppd,pdev);
     if (err)
-    	goto out_cdev;
-   	else
-   		pr_info("%s cdev_add %d %d OK.",__func__,pal_major,pdev->id);
+    	goto data_err;
 
-	/* Create a sysfs class for pal */
-	if(!pal_class) {
-		pal_class = class_create(THIS_MODULE, "pal_class");
-		if (IS_ERR(pal_class)) {
-			pr_err("%s failed to create a sysfs class for pal\n",__func__);
-			goto out_class;
-		}
-		else
-			pr_info("%s class_create pal_class OK.\n",__func__);
-	}
-
-	/* create /dev/pal0 /dev/asi0 */
-	dev = device_create(pal_class, NULL, MKDEV(pal_major, pdev->id), NULL,
-			    "%s%d", dev_name(dev), 0);
-	if (IS_ERR(dev)) {
-		err = PTR_ERR(dev);
-		pr_err("%s device_create failed, major is %d, minor is %d.\n",__func__, pal_major, pdev->id);
-		goto out_chrdev;
-	}
-
-	init_pal_procfs();
     pr_info("%s ok \n", __func__);
     return 0;
-
-out_chrdev:
-	unregister_chrdev(pal_major, DEVICE_NAME);
-
-out_class:
-	device_destroy(pal_class, MKDEV(pal_major, pdev->id));
-	class_destroy(pal_class);
-
-out_cdev:
-	cdev_del(&ppd->cdev);
-
 data_err:
-	pr_err("%s initialization failed.\n",__func__);
+	pr_err("%s failed.\n",__func__);
 	return err;
 }
 
 static int platform_pal_remove(struct platform_device *pdev) 
 {
 	struct platform_pal_dev *ppd;
+	pr_info("%s \n",__func__);
 
-	//pr_info("%s pdev->id is %d.\n", __func__,pdev->id);
 	ppd = platform_get_drvdata(pdev);
 	if (!ppd)
 		return -ENODEV;
 
-	//pr_info("%s [ppd->cdev.count = %d, ppd->cdev.dev = %d ]\n ",__func__,ppd->cdev.count, ppd->cdev.dev);
-
-	unregister_chrdev(pal_major, DEVICE_NAME);
-	device_destroy(pal_class, MKDEV(pal_major, pdev->id));
-	if (!pdev->id)
-		class_destroy(pal_class);
-	cdev_del(&ppd->cdev);
-
-	if (ppd->irq_init_flag == 1) {
-		devm_free_irq(ppd->dev, ppd->irq, ppd);
-		pr_info("%s free_irq %d ok \n", __func__, ppd->irq);
-	}
-
-	if(!ppd->io_base) {
-		devm_iounmap(ppd->dev,ppd->io_base);
-		pr_info("%s devm_iounmap 0x%p ok \n", __func__, ppd->io_base);
-	}
-
-	cleanup_pal_procfs();
-	pr_info("%s ok \n", __func__);
+	pal_chrdev_deregister(ppd,pdev);
+	pr_info("%s OK\n",__func__);
 	return 0;
 }
-
 
 static struct platform_driver platform_pal_driver = {
 	.driver = {
