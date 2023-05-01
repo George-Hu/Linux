@@ -14,7 +14,7 @@ function usage {
 
 function test_usr {
 	echo "==========Test usr interfaces=========="
-	rmmod ${pal_dbg_driver}
+	rmmod $TEST_DRV
 	rmmod $TEST_DEV
 
 	check_results=`lsmod | grep $TEST_DEV | awk '{print \$1}'`
@@ -39,22 +39,99 @@ function test_usr {
 	${USR_DIR}/usrPalTest.static close /dev/asi0
 }
 
-function test_ko {
-	echo "==========Test insmod & rmmod $TEST_DEV.ko & $TEST_DRV.ko=========="
+function test_ko_mode1 {
+	echo "==========Test insmod & rmmod $TEST_DEV.ko & $TEST_DRV.ko mode 1=========="
 	echo ${KO_DIR}
 	cd ${KO_DIR}
 	make clean
+	make local	
 	sleep 1
-	rmmod $TEST_DRV
-	rmmod $TEST_DEV
-	make local
-	sleep 2
 	dmesg -c
 	insmod $TEST_DEV.ko
 	insmod $TEST_DRV.ko
+	sleep 1
+	${USR_DIR}/usrPalTest.static open /dev/pal0
+	${USR_DIR}/usrPalTest.static open /dev/asi0
+	${USR_DIR}/usrPalTest.static close /dev/pal0
+	${USR_DIR}/usrPalTest.static close /dev/asi0
+	sleep 1
+	rmmod $TEST_DRV
+	rmmod $TEST_DEV
 	dmesg -c
-	#cat /dev/asi0
 	cd ${TEST_DIR}
+}
+
+function test_ko_mode2 {
+	echo "==========Test insmod & rmmod $TEST_DEV.ko & $TEST_DRV.ko mode 2=========="
+	echo ${KO_DIR}
+	cd ${KO_DIR}
+	make clean
+	make local
+	sleep 1
+	dmesg -c
+	insmod $TEST_DEV.ko
+	insmod $TEST_DRV.ko
+	sleep 1
+	${USR_DIR}/usrPalTest.static open /dev/pal0
+	${USR_DIR}/usrPalTest.static open /dev/asi0
+	${USR_DIR}/usrPalTest.static close /dev/pal0
+	${USR_DIR}/usrPalTest.static close /dev/asi0
+	sleep 1
+	rmmod $TEST_DEV
+	rmmod $TEST_DRV
+	dmesg -c
+	cd ${TEST_DIR}
+}
+
+function test_ko_mode3 {
+	echo "==========Test insmod & rmmod $TEST_DEV.ko & $TEST_DRV.ko mode 3=========="
+	echo ${KO_DIR}
+	cd ${KO_DIR}
+	make clean
+	make local
+	sleep 1
+	dmesg -c
+	insmod $TEST_DRV.ko
+	insmod $TEST_DEV.ko
+	sleep 1
+	${USR_DIR}/usrPalTest.static open /dev/pal0
+	${USR_DIR}/usrPalTest.static open /dev/asi0
+	${USR_DIR}/usrPalTest.static close /dev/pal0
+	${USR_DIR}/usrPalTest.static close /dev/asi0
+	sleep 1
+	rmmod $TEST_DEV
+	rmmod $TEST_DRV
+	dmesg -c
+	cd ${TEST_DIR}
+}
+
+function test_ko_mode4 {
+	echo "==========Test insmod & rmmod $TEST_DEV.ko & $TEST_DRV.ko mode 4=========="
+	echo ${KO_DIR}
+	cd ${KO_DIR}
+	make clean
+	make local
+	sleep 1
+	dmesg -c
+	insmod $TEST_DRV.ko
+	insmod $TEST_DEV.ko
+	sleep 1
+	${USR_DIR}/usrPalTest.static open /dev/pal0
+	${USR_DIR}/usrPalTest.static open /dev/asi0
+	${USR_DIR}/usrPalTest.static close /dev/pal0
+	${USR_DIR}/usrPalTest.static close /dev/asi0
+	sleep 1
+	rmmod $TEST_DRV
+	rmmod $TEST_DEV	
+	dmesg -c
+	cd ${TEST_DIR}
+}
+
+function test_ko {
+	test_ko_mode1
+	test_ko_mode2
+	test_ko_mode3
+	test_ko_mode4
 }
 
 function test_all {

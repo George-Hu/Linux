@@ -25,7 +25,9 @@
 #undef USING_ALLOC_CHRDEV_REGION
 
 static int pal_first=0;
+#ifdef USING_ALLOC_CHRDEV_REGION
 static int minor_count=2;
+#endif
 static int pal_init_proc_flag=0;
 /*static int minor_base=0;
 static int minor_num=2;*/
@@ -221,7 +223,7 @@ ssize_t pal_read (struct file *filp, char __user *buf, size_t count, loff_t *pos
 	}	
 	return params.pal_data_len;
 #else
-	if (0 == ppd->devnum) {
+	if (0 == ppd->dev_id) {
 		if (PING_DMA_COMPLETE == (pal_dma_status | PING_DMA_COMPLETE)) {
 			pal_proc_fs.pal_rx_ping_int_cnt += 1;			
 			if( pal_proc_fs.pal_rx_ping_int_cnt == 1) {
@@ -263,7 +265,7 @@ ssize_t pal_read (struct file *filp, char __user *buf, size_t count, loff_t *pos
 			params.pal_data_addr = 0;
 			params.pal_data_len  = 0;
 		}
-	} else if (1 == ppd->devnum) {
+	} else if (1 == ppd->dev_id) {
 		pal_rx_len 		= ppd->pdata->read_fn(ppd->io_base + ASI_FRAME_LEN);
 		pal_dma_status 	= ppd->pdata->read_fn(ppd->io_base + ASI_DMA_STATUS);
 		if (PING_DMA_COMPLETE == (pal_dma_status | PING_DMA_COMPLETE)) {			
@@ -332,7 +334,7 @@ ssize_t pal_read_xxx (struct file *filp, char __user *buf, size_t count, loff_t 
 	return sizeof(struct pal_phycisal_info);
 	//return params.pal_data_len;
 #else
-	if (0 == ppd->devnum) {
+	if (0 == ppd->dev_id) {
 		if (PING_DMA_COMPLETE == (pal_dma_status | PING_DMA_COMPLETE)) {
 			pal_proc_fs.pal_rx_ping_int_cnt += 1;
 			pr_info("%s pal_rx_ping_int_cnt + 1\n",__func__);
@@ -375,7 +377,7 @@ ssize_t pal_read_xxx (struct file *filp, char __user *buf, size_t count, loff_t 
 			params.pal_data_addr = 0;
 			params.pal_data_len  = 0;
 		}
-	} else if (1 == ppd->devnum) {
+	} else if (1 == ppd->dev_id) {
 		pal_rx_len 		= ppd->pdata->read_fn(ppd->io_base + RX_LEN_OFFSET);
 		pal_dma_status 	= ppd->pdata->read_fn(ppd->io_base + DMA_STATUS_OFFSET);
 		if (PING_DMA_COMPLETE == (pal_dma_status | PING_DMA_COMPLETE)) {			
@@ -419,9 +421,9 @@ ssize_t pal_write (struct file *filp, const char __user *buf, size_t count, loff
 	unsigned int copied_count=0;
 	struct platform_pal_dev *ppd = filp->private_data;
 
-	pr_info("%s ppd->devnum is %d.\n", __func__,ppd->devnum);
+	pr_info("%s ppd->dev_id is %d.\n", __func__,ppd->dev_id);
 	ppd->rx_interrupt_flag=1;
-	if(!ppd->devnum) pal_proc_fs.pal_rx_ping_int_cnt += 1;
+	if(!ppd->dev_id) pal_proc_fs.pal_rx_ping_int_cnt += 1;
 	else  			 pal_proc_fs.asi_rx_ping_int_cnt += 1;
 	wake_up(&ppd->pal_queue);
 
@@ -625,7 +627,6 @@ static void cleanup_pal_procfs(void)
 static int pal_get_res_pdev(struct platform_pal_dev *ppd,
 		struct platform_device *pdev, struct resource *res)
 {
-	//struct device *dev = &pdev->dev;
 	struct resource *mem;
 	int err = 0;
 
@@ -678,14 +679,12 @@ static void platform_device_show(struct platform_device *pdev) {
 }
 #endif
 
-static int pal_chrdev_register(struct platform_pal_dev *ppd,struct platform_device *pdev)
+static int pal_chrdev_register(struct platform_pal_dev *ppd)
 {
 	int err = 0;
 	int major;
 	dev_t pal_dev;
 	struct device *class_dev;
-
-	ppd->dev = &pdev->dev;
 
 #ifdef USING_ALLOC_CHRDEV_REGION
     /* Allocate dynamic major number. */
@@ -708,21 +707,22 @@ static int pal_chrdev_register(struct platform_pal_dev *ppd,struct platform_devi
     cdev_init(&ppd->cdev,&platform_pal_fops);
     ppd->cdev.owner = THIS_MODULE;
     /* fifo only for debug use */
-    ppd->fifo       = (pdev->id == 0) ? (struct kfifo *)&g_pal_fifo : (struct kfifo *)&g_asi_fifo;
+    ppd->fifo       = (ppd->dev_id == 0) ? (struct kfifo *)&g_pal_fifo : (struct kfifo *)&g_asi_fifo;
 
 #ifdef USING_ALLOC_CHRDEV_REGION
     major   = MAJOR(pal_first);
-    pal_dev = (pal_first + pdev->id);
+    pal_dev = (pal_first + ppd->dev_id);
 #else
     major   = pal_first;
-	pal_dev = MKDEV(pal_first,pdev->id);
+	pal_dev = MKDEV(pal_first,ppd->dev_id);
 #endif
+	ppd->devnum = pal_dev;
     
     err = cdev_add(&ppd->cdev, pal_dev, 1);
     if (err)
     	goto out_cdev;
     else
-   		pr_info("%s cdev_add %d %d OK.",__func__,major,pdev->id); 
+   		pr_info("%s cdev_add %d %d OK.",__func__,major,ppd->dev_id); 
 
 	/* Create a sysfs class for pal */
 	if(!pal_class) {
@@ -735,15 +735,15 @@ static int pal_chrdev_register(struct platform_pal_dev *ppd,struct platform_devi
 			pr_info("%s class_create pal_class OK.\n",__func__);
 	}
 
-	pr_info("============dev_name(&pdev->dev) is %s.\n",dev_name(&pdev->dev));
+	pr_info("============dev_name(ppd->dev) is %s.\n",dev_name(ppd->dev));
 
 	/* create /dev/pal0 /dev/asi0 */	
 	class_dev = device_create(pal_class, NULL, pal_dev, NULL,
-			    "%s%d", dev_name(&pdev->dev), 0);
+			    "%s%d", dev_name(ppd->dev),0);
 
 	if (IS_ERR(class_dev)) {
 		err = PTR_ERR(class_dev);
-		pr_err("%s device_create failed, major is %d, minor is %d.\n",__func__, pal_first, pdev->id);
+		pr_err("%s device_create failed, major is %d, minor is %d.\n",__func__, pal_first, ppd->dev_id);
 		goto out_chrdev;
 	}
 
@@ -772,20 +772,24 @@ out_cdev:
 	return err;
 }
 
-static void pal_chrdev_deregister(struct platform_pal_dev *ppd,struct platform_device *pdev)
+static void pal_chrdev_deregister(struct platform_pal_dev *ppd)
 {
 	int major;
 	dev_t pal_dev;
 
+	pr_info("%s, ppd->devnum = %d,ppd->dev_id = %d\n",__func__,ppd->devnum,ppd->dev_id);
+
 #ifdef USING_ALLOC_CHRDEV_REGION
 	major   = MAJOR(pal_first);
-    pal_dev = (pal_first + pdev->id);
+    pal_dev = (pal_first + ppd->dev_id);
 	unregister_chrdev_region(pal_first, minor_count);
 #else
 	major   = pal_first;
-	pal_dev = MKDEV(pal_first,pdev->id);
+	pal_dev = MKDEV(pal_first,ppd->dev_id);
 	unregister_chrdev(pal_first, PAL_NAME);
 #endif	
+	ppd->devnum = pal_dev;
+	pr_info("%s, ppd->devnum = %d,ppd->dev_id = %d\n",__func__,ppd->devnum,ppd->dev_id);
 
 	device_destroy(pal_class, pal_dev);
 
@@ -810,11 +814,9 @@ static void pal_chrdev_deregister(struct platform_pal_dev *ppd,struct platform_d
 		pal_init_proc_flag = 0;
 	}
 
-	if(pdev->dev.kobj.name) //pal/asi -> parent is platform
-		sysfs_remove_link(&pdev->dev.kobj, "platform");
-	/*
-	sysfs_remove_link(&fan->cdev->device.kobj, "device");
-	*/
+	if(ppd->dev->kobj.name) //pal/asi -> parent is platform
+		sysfs_remove_link(&ppd->dev->kobj, "platform");
+	
 	pal_class_destroy_flag += 1;
 	pr_info("%s ok \n", __func__);
 	return;
@@ -837,7 +839,7 @@ static int platform_pal_probe(struct platform_device *pdev)
 		goto data_err;
 	}
 	ppd->dev = dev;
-	platform_set_drvdata(pdev, ppd);
+	ppd->dev_id = pdev->id;
 
 	spin_lock_init(&ppd->lock);
 	spin_lock_init(&ppd->irq_lock);
@@ -868,13 +870,13 @@ static int platform_pal_probe(struct platform_device *pdev)
     pr_info("%s, devm_ioremap OK,io_base is %p.\n",__func__,ppd->io_base);
  #endif   
 
-    ppd->devnum = pdev->id;
-    pr_info("%s dev_name(dev) is %s,pdev->id is %d.\n",__func__,dev_name(dev),pdev->id);
+    pr_info("%s dev_name(dev) is %s, ppd->dev_id is %d.\n",__func__,dev_name(dev), ppd->dev_id);
 
-    err = pal_chrdev_register(ppd,pdev);
+    err = pal_chrdev_register(ppd);
     if (err)
     	goto data_err;
 
+    platform_set_drvdata(pdev, ppd);
     pr_info("%s ok \n", __func__);
     return 0;
 data_err:
@@ -891,7 +893,7 @@ static int platform_pal_remove(struct platform_device *pdev)
 	if (!ppd)
 		return -ENODEV;
 
-	pal_chrdev_deregister(ppd,pdev);
+	pal_chrdev_deregister(ppd);
 	pr_info("%s OK\n",__func__);
 	return 0;
 }
