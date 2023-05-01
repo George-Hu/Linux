@@ -17,6 +17,7 @@ function test_usr {
 	rmmod $TEST_DRV
 	rmmod $TEST_DEV
 
+	cd ${KO_DIR} && make clean && make local && cd ${TEST_DIR}
 	check_results=`lsmod | grep $TEST_DEV | awk '{print \$1}'`
 	if [[ $check_results =~ $TEST_DEV ]]
 	then
