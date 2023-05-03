@@ -18,6 +18,7 @@ function test_usr {
 	rmmod $TEST_DEV
 
 	cd ${KO_DIR} && make clean && make local && cd ${TEST_DIR}
+
 	check_results=`lsmod | grep $TEST_DEV | awk '{print \$1}'`
 	if [[ $check_results =~ $TEST_DEV ]]
 	then
@@ -55,7 +56,11 @@ function test_ko_mode1 {
 	${USR_DIR}/usrPalTest.static open /dev/asi0
 	${USR_DIR}/usrPalTest.static close /dev/pal0
 	${USR_DIR}/usrPalTest.static close /dev/asi0
+	cat /proc/pal/info
+	cat /proc/asi/info	
 	sleep 1
+	cat /proc/pal/info
+	cat /proc/asi/info
 	rmmod $TEST_DRV
 	rmmod $TEST_DEV
 	dmesg -c
@@ -77,7 +82,11 @@ function test_ko_mode2 {
 	${USR_DIR}/usrPalTest.static open /dev/asi0
 	${USR_DIR}/usrPalTest.static close /dev/pal0
 	${USR_DIR}/usrPalTest.static close /dev/asi0
+	cat /proc/pal/info
+	cat /proc/asi/info	
 	sleep 1
+	cat /proc/pal/info
+	cat /proc/asi/info
 	rmmod $TEST_DEV
 	rmmod $TEST_DRV
 	dmesg -c
@@ -99,7 +108,11 @@ function test_ko_mode3 {
 	${USR_DIR}/usrPalTest.static open /dev/asi0
 	${USR_DIR}/usrPalTest.static close /dev/pal0
 	${USR_DIR}/usrPalTest.static close /dev/asi0
+	cat /proc/pal/info
+	cat /proc/asi/info	
 	sleep 1
+	cat /proc/pal/info
+	cat /proc/asi/info	
 	rmmod $TEST_DEV
 	rmmod $TEST_DRV
 	dmesg -c
@@ -121,7 +134,11 @@ function test_ko_mode4 {
 	${USR_DIR}/usrPalTest.static open /dev/asi0
 	${USR_DIR}/usrPalTest.static close /dev/pal0
 	${USR_DIR}/usrPalTest.static close /dev/asi0
+	cat /proc/pal/info
+	cat /proc/asi/info	
 	sleep 1
+	cat /proc/pal/info
+	cat /proc/asi/info	
 	rmmod $TEST_DRV
 	rmmod $TEST_DEV	
 	dmesg -c

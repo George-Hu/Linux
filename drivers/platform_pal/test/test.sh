@@ -55,6 +55,8 @@ function test_ko_mode1 {
 	${USR_DIR}/usrPalTest.static open /dev/asi0
 	${USR_DIR}/usrPalTest.static close /dev/pal0
 	${USR_DIR}/usrPalTest.static close /dev/asi0
+	cat /proc/pal/info
+	cat /proc/asi/info	
 	sleep 1
 	rmmod $TEST_DRV
 	rmmod $TEST_DEV
@@ -77,6 +79,8 @@ function test_ko_mode2 {
 	${USR_DIR}/usrPalTest.static open /dev/asi0
 	${USR_DIR}/usrPalTest.static close /dev/pal0
 	${USR_DIR}/usrPalTest.static close /dev/asi0
+	cat /proc/pal/info
+	cat /proc/asi/info	
 	sleep 1
 	rmmod $TEST_DEV
 	rmmod $TEST_DRV
@@ -99,6 +103,8 @@ function test_ko_mode3 {
 	${USR_DIR}/usrPalTest.static open /dev/asi0
 	${USR_DIR}/usrPalTest.static close /dev/pal0
 	${USR_DIR}/usrPalTest.static close /dev/asi0
+	cat /proc/pal/info
+	cat /proc/asi/info	
 	sleep 1
 	rmmod $TEST_DEV
 	rmmod $TEST_DRV
@@ -121,6 +127,8 @@ function test_ko_mode4 {
 	${USR_DIR}/usrPalTest.static open /dev/asi0
 	${USR_DIR}/usrPalTest.static close /dev/pal0
 	${USR_DIR}/usrPalTest.static close /dev/asi0
+	cat /proc/pal/info
+	cat /proc/asi/info	
 	sleep 1
 	rmmod $TEST_DRV
 	rmmod $TEST_DEV	

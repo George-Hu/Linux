@@ -564,14 +564,19 @@ static int pal_proc_show(struct seq_file *m, void *v)
 	return 0;
 }
 
-static int pal_proc_open(struct inode *inode, struct file *file) 
+static int pal_proc_open(struct inode *inode, struct file *file)
 {
+/* 
+   在open时，使用PDE_DATA(inode)作为私有数据向下传。其实PDE_DATA(inode) 就是 ppd.
+   这个私有数据的保存在seq_file的private里。
+   在write和show函数中可以直接使用file->private来找到私有数据。 
+*/
 	return single_open(file, pal_proc_show, PDE_DATA(inode));
 }
 
 static const struct file_operations pal_proc_fops = {
     .owner      = THIS_MODULE,
-    .open       = pal_proc_open,
+    .open       = pal_proc_open, //需实现
     .read       = seq_read,
     .llseek     = seq_lseek,
     .release    = single_release,
@@ -580,9 +585,12 @@ static const struct file_operations pal_proc_fops = {
 static void pal_init_proc(struct platform_pal_dev *ppd) 
 {
 	if (!ppd->pal_proc_fs.pal_proc_root) {
-		ppd->pal_proc_fs.pal_proc_root = proc_mkdir(dev_name(ppd->dev), NULL); 			// /proc/pal /proc/asi		      
+		ppd->pal_proc_fs.pal_proc_root = proc_mkdir(dev_name(ppd->dev), NULL); 			// 创建/proc/pal 或者 /proc/asi
+/*
+	使用proc_create_data，其中最后一个参数是私有数据。这里是 ppd.
+*/	      
 		if (!proc_create_data("info",S_IFREG | S_IRUGO, ppd->pal_proc_fs.pal_proc_root, &pal_proc_fops, ppd)) {
-			pr_err("%s unable to initialize /proc/%s\n",__func__, dev_name(ppd->dev));  // /proc/pal/info  /proc/asi/info
+			pr_err("%s unable to initialize /proc/%s\n",__func__, dev_name(ppd->dev));  // 创建/proc/pal/info 或者 /proc/asi/info
 			return;
 		}
 		pr_info("%s %d initialize /proc/%s\n",__func__, __LINE__, dev_name(ppd->dev));
@@ -598,8 +606,8 @@ static int init_pal_procfs(struct platform_pal_dev *ppd)
 
 static void cleanup_pal_procfs(struct platform_pal_dev *ppd) 
 {
-	remove_proc_entry("info",ppd->pal_proc_fs.pal_proc_root); //  /proc/asi/info ===> /proc/asi
-	remove_proc_entry(dev_name(ppd->dev),NULL);				  //  /proc/asi ===>/proc
+	remove_proc_entry("info",ppd->pal_proc_fs.pal_proc_root); //  从/proc/asi/info 移除info，变为 /proc/asi
+	remove_proc_entry(dev_name(ppd->dev),NULL);				  //  从/proc/asi 移除 asi
 }
 /* pal proc fs for debug end*/
 
