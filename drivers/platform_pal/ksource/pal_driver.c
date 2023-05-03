@@ -28,8 +28,6 @@ static int pal_first=0;
 #ifdef USING_ALLOC_CHRDEV_REGION
 static int minor_count=2;
 #endif
-static int pal_init_proc_flag=0;
-
 
 #define PAL_NAME 			"pal"
 
@@ -52,6 +50,18 @@ struct platform_pal_pdata {
 	void (*write_fn)(u32, void __iomem *);
 	irqreturn_t	(*intr_hdlr)(int irq, void *dev_id);
 };
+
+struct pal_proc_fs_t {
+	int         interrupt_cnt;
+	int 		rx_ping_int_cnt;
+	int  		rx_pong_int_cnt;
+	int         kfifo_empty_cnt;
+	int         kfifo_full_cnt;
+	int         not_ping_pong_int_cnt;
+	int         unknow_read_error_cnt;
+
+	struct proc_dir_entry  *pal_proc_root;
+}pal_proc_fs;
 
 struct platform_pal_dev {
     dev_t 					devnum;            /* 设备号 MKDEV(major,minor) */
@@ -76,6 +86,7 @@ struct platform_pal_dev {
     /* for user used */
     struct pal_info     	pal_info;
     struct pal_fpga_ver 	pal_fpga_ver;
+    struct pal_proc_fs_t	pal_proc_fs;       //for debug
     struct kfifo 		    *fifo;             // for debug
 
     const struct platform_pal_pdata	*pdata;
@@ -97,23 +108,6 @@ struct platform_pal_dev {
 #define FPGA_REG_GPIO_OUT  			0x24
 static DEFINE_KFIFO(g_pal_fifo,char,FIFO_LENGTH);
 static DEFINE_KFIFO(g_asi_fifo,char,FIFO_LENGTH);
-struct pal_proc_fs_t {
-	int         pal_interrupt_cnt;
-	int 		pal_rx_ping_int_cnt;
-	int  		pal_rx_pong_int_cnt;
-	int         pal_kfifo_empty_cnt;
-	int         pal_kfifo_full_cnt;
-	int         pal_not_ping_pong_int_cnt;
-
-	int         asi_interrupt_cnt;
-	int 		asi_rx_ping_int_cnt;
-	int  		asi_rx_pong_int_cnt;
-	int         asi_kfifo_empty_cnt;
-	int         asi_kfifo_full_cnt;
-	int         asi_not_ping_pong_int_cnt;
-
-	int         unknow_read_error_cnt;
-}pal_proc_fs;
 
 /* 3、字符设备操作函数集实现 */
 int pal_open (struct inode *inode, struct file *filp) 
@@ -126,11 +120,6 @@ int pal_open (struct inode *inode, struct file *filp)
 		filp->private_data = ppd;
 		kobject_get(&ppd->dev->kobj);
 	}
-
-/*	
-	pr_info("%s ppd->cdev.dev=%d,  ppd->cdev.count=%d",__func__,ppd->cdev.dev,ppd->cdev.dev);
-	pr_info("ppd->irq_init_flag=%d,ppd->name=%s.\n",ppd->irq_init_flag,ppd->name);
-*/
 
 	if (!ppd->irq_init_flag) {
 	    err = devm_request_irq(ppd->dev, ppd->irq, ppd->pdata->intr_hdlr,
@@ -209,7 +198,7 @@ ssize_t pal_read (struct file *filp, char __user *buf, size_t count, loff_t *pos
 #ifdef X86_64
 	pal_rx_len = 0;
 	pal_dma_status = 0;
-	pal_proc_fs.pal_rx_ping_int_cnt += 1;
+	ppd->pal_proc_fs.rx_ping_int_cnt += 1;
 	params.pal_data_addr = 0x00090000;
 	params.pal_data_len  = 0x100;
 	ret = 0;
@@ -222,43 +211,43 @@ ssize_t pal_read (struct file *filp, char __user *buf, size_t count, loff_t *pos
 #else
 	if (0 == ppd->dev_id) {
 		if (PING_DMA_COMPLETE == (pal_dma_status | PING_DMA_COMPLETE)) {
-			pal_proc_fs.pal_rx_ping_int_cnt += 1;			
-			if( pal_proc_fs.pal_rx_ping_int_cnt == 1) {
+			ppd->pal_proc_fs.rx_ping_int_cnt += 1;			
+			if( ppd->pal_proc_fs.rx_ping_int_cnt == 1) {
 				params.pal_data_addr = 0x43c40000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 2) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 2) {
 				params.pal_data_addr = 0x43c41000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 3) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 3) {
 				params.pal_data_addr = 0x43c42000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 4) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 4) {
 				params.pal_data_addr = 0x40000000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 5) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 5) {
 				params.pal_data_addr = 0xE0023000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 6) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 6) {
 				params.pal_data_addr = 0xE0047000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 7) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 7) {
 				params.pal_data_addr = 0xE0049000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 8) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 8) {
 				params.pal_data_addr = 0xE0002000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 9) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 9) {
 				params.pal_data_addr = 0xE0022000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 10) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 10) {
 				params.pal_data_addr = 0xE0003000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 11) {				
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 11) {				
 				params.pal_data_addr = 0xE0001000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 12) {
-				pal_proc_fs.pal_rx_ping_int_cnt = 0;
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 12) {
+				ppd->pal_proc_fs.rx_ping_int_cnt = 0;
 				params.pal_data_addr = 0xE0021000;
 			}			
 			
 			params.pal_data_len  = 0x100;
 			ret = 0;
 		} else if (PONG_DMA_COMPLETE == (pal_dma_status | PONG_DMA_COMPLETE)) {
-			pal_proc_fs.pal_rx_pong_int_cnt += 1;
+			ppd->pal_proc_fs.rx_pong_int_cnt += 1;
 			params.pal_data_addr = 0x99999999;
 			params.pal_data_len  = 0x40000;
 			ret = 0;
 		} else {
-			pal_proc_fs.pal_not_ping_pong_int_cnt += 1;
+			ppd->pal_proc_fs.not_ping_pong_int_cnt += 1;
 			params.pal_data_addr = 0;
 			params.pal_data_len  = 0;
 		}
@@ -266,22 +255,22 @@ ssize_t pal_read (struct file *filp, char __user *buf, size_t count, loff_t *pos
 		pal_rx_len 		= ppd->pdata->read_fn(ppd->io_base + ASI_FRAME_LEN);
 		pal_dma_status 	= ppd->pdata->read_fn(ppd->io_base + ASI_DMA_STATUS);
 		if (PING_DMA_COMPLETE == (pal_dma_status | PING_DMA_COMPLETE)) {			
-			pal_proc_fs.asi_rx_ping_int_cnt += 1;
+			ppd->pal_proc_fs._rx_ping_int_cnt += 1;
 			params.pal_data_addr = 0xaaaaaaaa;
 			params.pal_data_len  = 0x80000;
 			ret = 0;
 		} else if (PONG_DMA_COMPLETE == (pal_dma_status | PONG_DMA_COMPLETE)) {
-			pal_proc_fs.asi_rx_pong_int_cnt += 1;
+			ppd->pal_proc_fs.rx_pong_int_cnt += 1;
 			params.pal_data_addr = 0xbbbbbbbb;
 			params.pal_data_len  = 0xa0000;
 			ret = 0;
 		} else {
-			pal_proc_fs.asi_not_ping_pong_int_cnt += 1;
+			ppd->pal_proc_fs.not_ping_pong_int_cnt += 1;
 			params.pal_data_addr = 0;
 			params.pal_data_len  = 0;
 		}
 	} else {
-		pal_proc_fs.unknow_read_error_cnt += 1;
+		ppd->pal_proc_fs.unknow_read_error_cnt += 1;
 		params.pal_data_addr = 0;
 		params.pal_data_len  = -1;
 	}
@@ -319,7 +308,7 @@ ssize_t pal_read_xxx (struct file *filp, char __user *buf, size_t count, loff_t 
 #ifdef X86_64
 	pal_rx_len = 0;
 	pal_dma_status = 0;
-	pal_proc_fs.pal_rx_ping_int_cnt += 1;
+	ppd->pal_proc_fs.rx_ping_int_cnt += 1;
 	params.pal_data_addr = 0x00090000;
 	params.pal_data_len  = 0x100;
 	ret = 0;
@@ -333,44 +322,44 @@ ssize_t pal_read_xxx (struct file *filp, char __user *buf, size_t count, loff_t 
 #else
 	if (0 == ppd->dev_id) {
 		if (PING_DMA_COMPLETE == (pal_dma_status | PING_DMA_COMPLETE)) {
-			pal_proc_fs.pal_rx_ping_int_cnt += 1;
-			pr_info("%s pal_rx_ping_int_cnt + 1\n",__func__);
-			if( pal_proc_fs.pal_rx_ping_int_cnt == 1) {
+			ppd->pal_proc_fs.rx_ping_int_cnt += 1;
+			pr_info("%s rx_ping_int_cnt + 1\n",__func__);
+			if( ppd->pal_proc_fs.rx_ping_int_cnt == 1) {
 				params.pal_data_addr = 0x43c40000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 2) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 2) {
 				params.pal_data_addr = 0x43c41000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 3) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 3) {
 				params.pal_data_addr = 0x43c42000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 4) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 4) {
 				params.pal_data_addr = 0x40000000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 5) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 5) {
 				params.pal_data_addr = 0xE0023000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 6) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 6) {
 				params.pal_data_addr = 0xE0047000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 7) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 7) {
 				params.pal_data_addr = 0xE0049000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 8) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 8) {
 				params.pal_data_addr = 0xE0002000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 9) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 9) {
 				params.pal_data_addr = 0xE0022000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 10) {
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 10) {
 				params.pal_data_addr = 0xE0003000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 11) {				
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 11) {				
 				params.pal_data_addr = 0xE0001000;
-			} else if ( pal_proc_fs.pal_rx_ping_int_cnt == 12) {
-				pal_proc_fs.pal_rx_ping_int_cnt = 0;
+			} else if ( ppd->pal_proc_fs.rx_ping_int_cnt == 12) {
+				ppd->pal_proc_fs.rx_ping_int_cnt = 0;
 				params.pal_data_addr = 0xE0021000;
-			}			
+			}		
 			
 			params.pal_data_len  = 0x100;
 			ret = 0;
 		} else if (PONG_DMA_COMPLETE == (pal_dma_status | PONG_DMA_COMPLETE)) {
-			pal_proc_fs.pal_rx_pong_int_cnt += 1;
+			ppd->pal_proc_fs.rx_pong_int_cnt += 1;
 			params.pal_data_addr = 0x99999999;
 			params.pal_data_len  = 0x40000;
 			ret = 0;
 		} else {
-			pal_proc_fs.pal_not_ping_pong_int_cnt += 1;
+			ppd->pal_proc_fs.not_ping_pong_int_cnt += 1;
 			params.pal_data_addr = 0;
 			params.pal_data_len  = 0;
 		}
@@ -378,22 +367,22 @@ ssize_t pal_read_xxx (struct file *filp, char __user *buf, size_t count, loff_t 
 		pal_rx_len 		= ppd->pdata->read_fn(ppd->io_base + RX_LEN_OFFSET);
 		pal_dma_status 	= ppd->pdata->read_fn(ppd->io_base + DMA_STATUS_OFFSET);
 		if (PING_DMA_COMPLETE == (pal_dma_status | PING_DMA_COMPLETE)) {			
-			pal_proc_fs.asi_rx_ping_int_cnt += 1;
+			ppd->pal_proc_fs.rx_ping_int_cnt += 1;
 			params.pal_data_addr = 0xaaaaaaaa;
 			params.pal_data_len  = 0x80000;
 			ret = 0;
 		} else if (PONG_DMA_COMPLETE == (pal_dma_status | PONG_DMA_COMPLETE)) {
-			pal_proc_fs.asi_rx_pong_int_cnt += 1;
+			ppd->pal_proc_fs.rx_pong_int_cnt += 1;
 			params.pal_data_addr = 0xbbbbbbbb;
 			params.pal_data_len  = 0xa0000;
 			ret = 0;
 		} else {
-			pal_proc_fs.asi_not_ping_pong_int_cnt += 1;
+			ppd->pal_proc_fs.not_ping_pong_int_cnt += 1;
 			params.pal_data_addr = 0;
 			params.pal_data_len  = 0;
 		}
 	} else {
-		pal_proc_fs.unknow_read_error_cnt += 1;
+		ppd->pal_proc_fs.unknow_read_error_cnt += 1;
 		params.pal_data_addr = 0;
 		params.pal_data_len  = -1;
 	}
@@ -420,8 +409,7 @@ ssize_t pal_write (struct file *filp, const char __user *buf, size_t count, loff
 
 	pr_info("%s ppd->dev_id is %d.\n", __func__,ppd->dev_id);
 	ppd->rx_interrupt_flag	=	1;
-	if(!ppd->dev_id) pal_proc_fs.pal_rx_ping_int_cnt += 1;
-	else  			 pal_proc_fs.asi_rx_ping_int_cnt += 1;
+	ppd->pal_proc_fs.rx_ping_int_cnt += 1;
 	wake_up(&ppd->pal_queue);
 
 	ret = kfifo_from_user(ppd->fifo, buf, count, &copied_count);
@@ -540,12 +528,8 @@ static irqreturn_t platform_rx_irq_hdlr(int irq, void *dev_id)
 		pr_info("%s.\n",__func__);
 
 	spin_lock_irqsave(&ppd->irq_lock, flags);
-
-	if(!ppd->dev_id) {
-		pal_proc_fs.pal_interrupt_cnt += 1;
-	} else {
-		pal_proc_fs.asi_interrupt_cnt += 1;
-	}
+	
+	ppd->pal_proc_fs.interrupt_cnt += 1;	
 
 	wake_up(&ppd->pal_queue);
 	ppd->rx_interrupt_flag  = 1;
@@ -562,29 +546,27 @@ static const struct platform_pal_pdata platform_pal_pdata_info = {
 };
 
 /* pal proc fs for debug start*/
-static struct proc_dir_entry *pal_proc_root = NULL;
 static int pal_proc_show(struct seq_file *m, void *v) 
 {
-	seq_printf(m, "pal_interrupt_cnt 				: 0x%08X\n", pal_proc_fs.pal_interrupt_cnt);
-    seq_printf(m, "pal_rx_ping_int_cnt 				: 0x%08X\n", pal_proc_fs.pal_rx_ping_int_cnt);
-	seq_printf(m, "pal_rx_pong_int_cnt				: 0x%08X\n", pal_proc_fs.pal_rx_pong_int_cnt);
-	seq_printf(m, "pal_not_ping_pong_int_cnt		  	: 0x%08X\n\n", pal_proc_fs.pal_not_ping_pong_int_cnt);
-    seq_printf(m, "pal_kfifo_empty_cnt 				: 0x%08X\n", pal_proc_fs.pal_kfifo_empty_cnt);
-	seq_printf(m, "pal_kfifo_full_cnt  				: 0x%08X\n\n", pal_proc_fs.pal_kfifo_full_cnt);	
-	seq_printf(m, "asi_interrupt_cnt 				: 0x%08X\n", pal_proc_fs.asi_interrupt_cnt);
-    seq_printf(m, "asi_rx_ping_int_cnt 				: 0x%08X\n", pal_proc_fs.asi_rx_ping_int_cnt);
-	seq_printf(m, "asi_rx_pong_int_cnt 				: 0x%08X\n", pal_proc_fs.asi_rx_pong_int_cnt);
-	seq_printf(m, "asi_not_ping_pong_int_cn  			: 0x%08X\n\n", pal_proc_fs.asi_not_ping_pong_int_cnt);	
-    seq_printf(m, "asi_kfifo_empty_cnt 				: 0x%08X\n", pal_proc_fs.asi_kfifo_empty_cnt);
-	seq_printf(m, "asi_kfifo_full_cnt  				: 0x%08X\n\n", pal_proc_fs.asi_kfifo_full_cnt);
-	seq_printf(m, "unknow_read_error_cnt  				: 0x%08X\n\n", pal_proc_fs.unknow_read_error_cnt);
+	struct platform_pal_dev *info = m->private;
 
+	if (info) {
+		seq_printf(m, "interrupt_cnt 				: 0x%08X\n", info->pal_proc_fs.interrupt_cnt);
+		seq_printf(m, "rx_ping_int_cnt 			: 0x%08X\n", info->pal_proc_fs.rx_ping_int_cnt);
+		seq_printf(m, "rx_pong_int_cnt				: 0x%08X\n", info->pal_proc_fs.rx_pong_int_cnt);
+		seq_printf(m, "not_ping_pong_int_cnt		  	: 0x%08X\n\n",  info->pal_proc_fs.not_ping_pong_int_cnt);
+		seq_printf(m, "kfifo_empty_cnt 			: 0x%08X\n", info->pal_proc_fs.kfifo_empty_cnt);
+		seq_printf(m, "kfifo_full_cnt  			: 0x%08X\n\n",  info->pal_proc_fs.kfifo_full_cnt);
+		seq_printf(m, "unknow_read_error_cnt  			: 0x%08X\n\n",  info->pal_proc_fs.unknow_read_error_cnt);
+	}
+	else
+		pr_info("%s %d info is nullprt\n",__func__,__LINE__);
 	return 0;
 }
 
 static int pal_proc_open(struct inode *inode, struct file *file) 
 {
-    return single_open(file, pal_proc_show, NULL);
+	return single_open(file, pal_proc_show, PDE_DATA(inode));
 }
 
 static const struct file_operations pal_proc_fops = {
@@ -595,29 +577,29 @@ static const struct file_operations pal_proc_fops = {
     .release    = single_release,
 };
 
-static int pal_init_proc(void) 
+static void pal_init_proc(struct platform_pal_dev *ppd) 
 {
-    pal_proc_root = proc_mkdir("pal", NULL);
-
-    if(pal_proc_root) {
-        proc_create("statistics",  0, pal_proc_root, &pal_proc_fops);
-        return 0;
-    }
-    return -1;
+	if (!ppd->pal_proc_fs.pal_proc_root) {
+		ppd->pal_proc_fs.pal_proc_root = proc_mkdir(dev_name(ppd->dev), NULL); 			// /proc/pal /proc/asi		      
+		if (!proc_create_data("info",S_IFREG | S_IRUGO, ppd->pal_proc_fs.pal_proc_root, &pal_proc_fops, ppd)) {
+			pr_err("%s unable to initialize /proc/%s\n",__func__, dev_name(ppd->dev));  // /proc/pal/info  /proc/asi/info
+			return;
+		}
+		pr_info("%s %d initialize /proc/%s\n",__func__, __LINE__, dev_name(ppd->dev));
+	}
+	return;
 }
 
-static int init_pal_procfs(void) 
+static int init_pal_procfs(struct platform_pal_dev *ppd)
 {
-    pal_init_proc();
+    pal_init_proc(ppd);
     return 0;
 }
 
-static void cleanup_pal_procfs(void) 
+static void cleanup_pal_procfs(struct platform_pal_dev *ppd) 
 {
-    if (pal_proc_root) {
-        remove_proc_entry("statistics",  pal_proc_root);
-        remove_proc_entry("pal",NULL);
-    }
+	remove_proc_entry("info",ppd->pal_proc_fs.pal_proc_root); //  /proc/asi/info ===> /proc/asi
+	remove_proc_entry(dev_name(ppd->dev),NULL);				  //  /proc/asi ===>/proc
 }
 /* pal proc fs for debug end*/
 
@@ -681,8 +663,8 @@ static int pal_chrdev_register(struct platform_pal_dev *ppd)
     /* Allocate dynamic major number. */
     if(!pal_first) {
 		if (alloc_chrdev_region(&pal_first, 0, minor_count, PAL_NAME)) {
-				pr_err("%s, Failed to allocate character device region\n",__func__);
-				return -1;
+			pr_err("%s, Failed to allocate character device region\n",__func__);
+			return -1;
 		}    	
     }
 #else
@@ -757,10 +739,7 @@ static int pal_chrdev_register(struct platform_pal_dev *ppd)
 		goto out_chrdev;
 	}
 
-	if (!pal_init_proc_flag) {
-		init_pal_procfs();
-		pal_init_proc_flag = 1;
-	}
+	init_pal_procfs(ppd);
 
 	platform_pal_dev_show(ppd);
 	pr_info("%s OK\n",__func__);
@@ -774,13 +753,9 @@ out_chrdev:
 #endif
 
 out_class:
-#if 1
 	device_destroy(ppd->pal_class, pal_dev);
 	class_destroy(ppd->pal_class);
-#else
-	device_destroy(pal_class, pal_dev);
-	class_destroy(pal_class);
-#endif
+
 out_cdev:
 	cdev_del(&ppd->cdev);
 
@@ -823,10 +798,7 @@ static void pal_chrdev_deregister(struct platform_pal_dev *ppd)
 		pr_info("%s devm_iounmap 0x%p ok \n", __func__, ppd->io_base);
 	}	
 
-	if (pal_init_proc_flag) {
-		cleanup_pal_procfs();
-		pal_init_proc_flag = 0;
-	}
+	cleanup_pal_procfs(ppd);
 
 	if(ppd->dev->kobj.name) //pal/asi -> parent is platform
 		sysfs_remove_link(&ppd->dev->kobj, "platform");
